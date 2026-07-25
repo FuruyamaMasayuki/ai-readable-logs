@@ -56,6 +56,7 @@ the digest then found the same root cause, naming the branch at fault, from
 |---|---|
 | [`packages/ailog`](packages/ailog) | The core. Zero dependencies, pure Dart — usable from CLIs, servers, and Flutter alike |
 | [`packages/ailog_flutter`](packages/ailog_flutter) | Flutter add-on: automatic `FlutterError`/`PlatformDispatcher`/`ErrorWidget` hooks, navigation breadcrumbs, and a **native (Kotlin/Swift) → Dart logging bridge** |
+| [`packages/ailog_vault`](packages/ailog_vault) | Share the logs: zips the JSONL + a fresh digest and opens the platform share sheet, via [log_vault](https://pub.dev/packages/log_vault) |
 
 ## Quick start
 

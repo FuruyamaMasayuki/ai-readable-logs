@@ -26,15 +26,30 @@ import 'package:ailog/ailog.dart';
 ///   });
 /// }
 /// ```
+/// [capturePrint] additionally routes plain `print()` calls into [logger]
+/// (tagged `print`), so un-migrated code and third-party packages show up in
+/// the JSONL file too. [forwardPrintsToConsole] keeps the raw line visible
+/// in the console; turn it off if a `ConsoleSink` is attached, or each print
+/// appears twice.
 void runAppGuarded(
   Logger logger,
   void Function() body, {
   LogScope? scope,
   Map<String, Object?>? context,
+  bool capturePrint = false,
+  bool forwardPrintsToConsole = true,
 }) {
+  void Function() wrapped = body;
+  if (capturePrint) {
+    wrapped = () => capturePrints(
+          logger,
+          body,
+          forwardToConsole: forwardPrintsToConsole,
+        );
+  }
   runWithScopeGuarded(
     scope ?? logger.startTrace(context: context),
-    body,
+    wrapped,
     (error, stack) {
       logger.fatal(error, stack,
           context: const {'source': 'zone'}, tags: const ['uncaught']);

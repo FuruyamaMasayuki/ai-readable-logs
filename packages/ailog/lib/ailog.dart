@@ -20,6 +20,7 @@ export 'src/log_event.dart'
     show LogEvent, ErrorInfo, aiLogSchemaVersion, schemaLegend;
 export 'src/log_level.dart' show LogLevel;
 export 'src/logger.dart';
+export 'src/print_capture.dart' show capturePrints;
 export 'src/normalizer.dart'
     show
         StackFrame,

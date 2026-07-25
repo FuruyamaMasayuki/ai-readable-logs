@@ -121,6 +121,28 @@ allow optional positional and named parameters in one signature, so
 `logger.info()` with no arguments at all can't coexist with the `context:` /
 `tags:` named parameters — hence the explicit `null`.)
 
+## Capturing plain `print()` calls
+
+Nobody instruments a codebase all at once. `capturePrints` routes ordinary
+`print()` — yours, or a third-party package's — into the structured log,
+tagged `print`, carrying the ambient trace like any other event:
+
+```dart
+void main() {
+  final logger = Logger.create(sink: JsonlFileSink(path: '.ailog/app.jsonl'));
+  capturePrints(logger, () {
+    print('legacy debugging line');   // → console AND app.jsonl
+    runApplication();
+  });
+}
+```
+
+Set `forwardToConsole: false` if a `ConsoleSink` is attached, or each print
+shows up twice (once raw, once formatted). Prints emitted by the logging
+pipeline itself are passed through untouched — a console sink cannot feed
+back into the log. In Flutter, `runAppGuarded(..., capturePrint: true)` does
+the same thing with one flag.
+
 ## Per-subsystem loggers
 
 ```dart
