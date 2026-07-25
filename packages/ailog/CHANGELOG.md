@@ -2,6 +2,13 @@
 
 ### Added
 
+- **`JsonlPrintSink`.** Prints the same wire format `JsonlFileSink` writes,
+  one line per event, through `print`. Exists for a real device with no
+  reachable filesystem path: `flutter run` already mirrors the app's print
+  output into your terminal live, so piping that session through `tee` and
+  extracting the JSON lines gets you a file `ailog_digest` can read, with no
+  `adb pull` or Xcode device menu involved. Composes safely with
+  `capturePrints` — no re-logging loop — verified by test.
 - **Build-mode control.** `isDebugBuild` / `isProfileBuild` /
   `isReleaseBuild` / `currentBuildMode` are `const`, read from the
   compiler-defined `dart.vm.product` and `dart.vm.profile` — the same values

@@ -559,6 +559,7 @@ Use `Redactor.disabled()` only for local, throwaway debugging.
 | Sink | Purpose |
 |---|---|
 | `JsonlFileSink` | Appends JSONL to a file with size-based rotation (`app.jsonl.1` … `.N`) |
+| `JsonlPrintSink` | The same wire format as `JsonlFileSink`, through `print` — for capturing a live debug session; see below |
 | `ConsoleSink` | Human-readable, colorized terminal output |
 | `MultiSink` | Fans out to several sinks; a failing sink is isolated, not fatal |
 | `LevelFilterSink` | Wraps a sink with its own minimum level |
@@ -586,6 +587,33 @@ logcat and the Xcode console all render ANSI escapes as literal characters.
 Combining this with `capturePrints` is safe: the capture guard passes the
 logging pipeline's own prints straight through instead of logging them
 again, so a `print`-based sink inside a captured zone cannot loop.
+
+### Capturing a debug session as a file
+
+`flutter run` mirrors the app's `print` output into your terminal live, over
+the same connection every other debug tool already uses — no `adb pull`, no
+Xcode device menus. `JsonlPrintSink` prints the exact wire format
+`JsonlFileSink` would write, one line per event, so that session transcript
+doubles as the log file:
+
+```dart
+Logger.create(sink: MultiSink([fileSink, JsonlPrintSink(write: debugPrint)]))
+```
+
+```sh
+flutter run | tee session.log
+grep -oE '\{.*\}' session.log > app.jsonl    # strip any logcat/IDE prefix
+dart run ailog:ailog_digest app.jsonl
+```
+
+Pass `write: debugPrint`, not bare `print` — see "Console output on
+Flutter" above for why plain `print` under load can silently drop lines on
+Android. This is a debug-time convenience: there's no `_hdr` legend line
+(nothing marks "start of file" in a live stream), and a dropped print is a
+dropped event with no record that it happened. Reach for the real
+`JsonlFileSink`, or one of `ailog_flutter`'s other ways to get a log off a
+[real device](../ailog_flutter/README.md#getting-the-log-off-a-real-device),
+when that matters more than convenience.
 
 ## Examples
 

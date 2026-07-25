@@ -221,7 +221,7 @@ implementation with real reference values in
 `dart run ailog:ailog_digest .ailog/app.jsonl` runs on **your development
 machine** and needs a path it can read. On a real device, `app.jsonl` lives
 inside the app's private storage — there is no shell on your laptop that can
-just open that path. Three ways to actually get at it, in order of how much
+just open that path. Four ways to actually get at it, in order of how much
 tooling they need:
 
 1. **No tooling at all: read it from inside the app.** Keep a `MemorySink`
@@ -237,26 +237,47 @@ tooling they need:
    Works identically on a real device, a simulator, or the web. Nothing ever
    leaves the app until you decide to copy it somewhere.
 
-2. **Send it off the device: the share sheet.** See
+2. **Stream it live, while you're already debugging.** `flutter run`
+   mirrors the app's `print` output into your terminal in real time — the
+   same channel `debugPrint` uses — over USB, with no manual pull step at
+   all. Add [`JsonlPrintSink`](../ailog/README.md#capturing-a-debug-session-as-a-file)
+   to the sink list and capture the session:
+   ```dart
+   Logger.create(sink: MultiSink([fileSink, JsonlPrintSink(write: debugPrint)]))
+   ```
+   ```sh
+   flutter run | tee session.log
+   # later, or in another terminal:
+   grep -oE '\{.*\}' session.log > app.jsonl
+   dart run ailog:ailog_digest app.jsonl
+   ```
+   `grep -oE` pulls just the `{...}` JSON out of each line rather than
+   assuming it starts at column 1, because on Android this channel is
+   usually routed through logcat, which prepends its own
+   `I/flutter ( 1234):` tag. Pass `write: debugPrint`, not bare `print` —
+   plain `print` calls faster than Android's log rate limit can be silently
+   dropped, which is exactly the problem `debugPrint` exists to avoid.
+
+3. **Send it off the device: the share sheet.** See
    ["Sharing logs with a 'send logs' button"](#sharing-logs-with-a-send-logs-button)
    below — AirDrop, Slack, email, Files, whatever the platform offers. Once
    you (or a tester) sends it to you, it's an ordinary file on your machine
    and `ailog_digest` works exactly as documented above.
 
-3. **Pull it with device tooling**, if you have the device connected. The
+4. **Pull it with device tooling**, if you have the device connected. The
    exact path is whatever you passed to `JsonlFileSink(path: ...)` — usually
    somewhere under `getApplicationSupportDirectory()` or
    `getApplicationDocumentsDirectory()` (`sink.path` on the `JsonlFileSink`
    itself always has the true answer):
    - **Android:** `adb pull` the path (debug builds; on a release build
      without `run-as` access, `adb pull` a directory you can't reach
-     directly may not work — fall back to option 1 or 2).
+     directly may not work — fall back to another option above).
    - **iOS:** Xcode → Window → Devices and Simulators → select the device →
      your app → the gear icon → **Download Container...**, then find the
      file inside the extracted `.xcappdata` bundle.
 
 For anyone who isn't the developer holding a debugger — a QA tester, a
-support ticket, a beta user — option 2 is the only one that doesn't require
+support ticket, a beta user — option 3 is the only one that doesn't require
 them to have Xcode or `adb` installed, which is why it's worth wiring up
 even for an internal build.
 

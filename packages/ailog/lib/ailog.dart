@@ -46,6 +46,7 @@ export 'src/redaction.dart'
 export 'src/sanitizer.dart' show Sanitizer, SanitizerLimits;
 export 'src/sinks/console_sink.dart' show ConsoleSink;
 export 'src/sinks/jsonl_file_sink.dart' show JsonlFileSink;
+export 'src/sinks/jsonl_print_sink.dart' show JsonlPrintSink;
 export 'src/sinks/log_sink.dart'
     show LogSink, MultiSink, MemorySink, LevelFilterSink;
 export 'src/sinks/rate_limit_sink.dart' show RateLimitSink;
