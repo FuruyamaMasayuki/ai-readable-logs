@@ -44,9 +44,16 @@ class CausalBuffer {
 
   /// The [limit] most recent events for [traceId], oldest first.
   ///
-  /// When the trace has fewer events than requested, unscoped events are *not*
-  /// mixed in: a chain that silently blends unrelated operations is worse than
-  /// a short one.
+  /// Events from *different* traces are never mixed: a chain that silently
+  /// blends unrelated operations is worse than a short one.
+  ///
+  /// Untraced events (`traceId == null`) are the exception, and it is worth
+  /// understanding before reading a chain on one. They all share a single
+  /// bucket, so an error logged outside any `startTrace`/`runWithScope` gets
+  /// a chain built from whatever was logged most recently anywhere in the
+  /// app — which may be unrelated. That is still useful in a simple,
+  /// sequential program, and misleading in a concurrent one. Wrap concurrent
+  /// work in a trace to get chains you can trust.
   List<LogEvent> recentFor(String? traceId, {int limit = 10}) {
     final queue = _byTrace[traceId ?? _noTrace];
     if (queue == null || queue.isEmpty) return const [];

@@ -1,10 +1,11 @@
-/// AI解析に最適化されたJSONL構造化ロガー。
+/// Structured JSONL logging designed to be read by an AI.
 ///
-/// 依存ゼロのPure Dartパッケージ。トレース/セッション相関、因果チェーン、
-/// エラーの自動要約・グルーピング（指紋化）、機密情報の自動マスキング、
-/// AI向けダイジェスト生成を備える。
+/// A zero-dependency, pure Dart package providing trace/session correlation,
+/// causal chains embedded in error lines, error fingerprinting and grouping,
+/// automatic secret redaction, and AI-sized digest generation.
 library ailog;
 
+export 'src/call_site.dart' show CallSite, captureCallSite;
 export 'src/causal_buffer.dart' show CausalBuffer;
 export 'src/console_formatter.dart' show ConsoleFormatter;
 export 'src/context.dart'
@@ -27,7 +28,8 @@ export 'src/redaction.dart'
         Redactor,
         RedactionRule,
         builtInRedactionRules,
-        defaultSensitiveKeyPattern;
+        defaultSensitiveKeyPattern,
+        sensitiveKeyWords;
 export 'src/sanitizer.dart' show Sanitizer, SanitizerLimits;
 export 'src/sinks/console_sink.dart' show ConsoleSink;
 export 'src/sinks/jsonl_file_sink.dart' show JsonlFileSink;

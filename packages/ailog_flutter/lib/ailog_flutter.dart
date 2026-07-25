@@ -1,8 +1,9 @@
-/// Flutterアプリ向け ailog アドオン。
+/// Flutter add-on for [ailog].
 ///
-/// `FlutterError.onError` / `PlatformDispatcher.onError` の自動フック、
-/// Widgetビルドエラーの構造化記録、画面遷移のトレース記録、
-/// zoneレベルの捕捉付き `main()` ヘルパーを提供する。
+/// Provides automatic `FlutterError.onError` / `PlatformDispatcher.onError` /
+/// `ErrorWidget.builder` hooks, structured recording of widget build errors,
+/// navigation breadcrumbs, a zone-guarded `main()` helper, and a bridge that
+/// lets native iOS/Android code log into the same JSONL output.
 library ailog_flutter;
 
 export 'package:ailog/ailog.dart';

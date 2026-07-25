@@ -177,6 +177,38 @@ void main() {
       expect(lines.any((l) => l.contains('after close')), isFalse);
     });
 
+    test(
+        'add() does not throw when the log directory is destroyed underneath it',
+        () async {
+      final path = '${tempDir.path}/nested/app.jsonl';
+      final sink = JsonlFileSink(
+        path: path,
+        flushInterval: Duration.zero,
+        maxBytes: 40,
+        writeSchemaHeader: false,
+      );
+      sink.add(_event('first'));
+      await sink.flush();
+
+      // Simulates the directory disappearing (external cleanup, ejected
+      // storage, a user clearing app data) between writes. A logger must
+      // degrade to dropping events, never take down the host program —
+      // especially since this tends to happen exactly when something else is
+      // already going wrong.
+      Directory('${tempDir.path}/nested').deleteSync(recursive: true);
+
+      expect(
+        () {
+          for (var i = 0; i < 5; i++) {
+            sink.add(_event('after directory removal $i'));
+          }
+        },
+        returnsNormally,
+      );
+      await expectLater(sink.flush(), completes);
+      await expectLater(sink.close(), completes);
+    });
+
     test('path getter reflects the constructor argument', () {
       final path = '${tempDir.path}/app.jsonl';
       final sink = JsonlFileSink(path: path, flushInterval: Duration.zero);

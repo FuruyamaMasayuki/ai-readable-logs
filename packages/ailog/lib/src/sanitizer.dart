@@ -157,10 +157,28 @@ class Sanitizer {
     return _string(value.toString());
   }
 
+  /// Redacts and length-bounds a standalone string.
+  ///
+  /// Used for the fields that aren't part of the context map but still must
+  /// respect the same budget — the log message itself, and an error's
+  /// message and stack frames.
+  String sanitizeText(String value) => _string(value);
+
   String _string(String value) {
     final redacted = redactor.redactString(value);
     if (redacted.length <= limits.maxStringLength) return redacted;
-    final kept = redacted.substring(0, limits.maxStringLength);
-    return '$kept…+${redacted.length - limits.maxStringLength} chars';
+
+    var cut = limits.maxStringLength;
+    // Never split a `[redacted:kind#hash]` placeholder: a truncated
+    // placeholder like `[redacted:ema` reads like leaked data rather than a
+    // mask. If the cut lands inside one, pull back to just before it.
+    final lastOpen = redacted.lastIndexOf('[redacted:', cut);
+    if (lastOpen != -1) {
+      final close = redacted.indexOf(']', lastOpen);
+      if (close == -1 || close >= cut) cut = lastOpen;
+    }
+
+    final kept = redacted.substring(0, cut);
+    return '$kept…+${redacted.length - cut} chars';
   }
 }

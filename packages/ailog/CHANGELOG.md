@@ -1,3 +1,49 @@
+## 0.2.0
+
+### Added
+
+- **Checkpoints.** `logger.checkpoint()` — or any leveled method with a null
+  message — records *where* it was called
+  (`→ checkout.dart:42 CartService.charge`) and tags the event `checkpoint`.
+  Proves a code path ran without inventing throwaway messages, and stays
+  correct when the code moves. Defaults to `trace`, and the stack is only
+  captured after the level filter passes, so it costs nothing in production.
+- `CallSite` / `captureCallSite` exported for custom use.
+- `Sanitizer.sanitizeText` for redacting and length-bounding a standalone
+  string.
+
+### Fixed
+
+- **Over-redaction of ordinary fields.** `defaultSensitiveKeyPattern` matched
+  as a bare substring, so `pin` hit `shippingAddress`/`opinionText`/
+  `spinnerValue` and `auth` hit `bookAuthor`/`coAuthorEmail` — those fields
+  had their values silently destroyed. Key names are now split into words
+  (camelCase / `_` / `-` / `.`) and matched per word. Plurals
+  (`credentials`, `secrets`) now match too.
+- **Unbounded `msg` and `err.m` / `err.fr`.** These bypassed
+  `SanitizerLimits.maxStringLength` entirely, so one
+  `logger.info(hugeString)` could put megabytes on a single line — exactly
+  the context-window blowout the size limits exist to prevent. All three now
+  go through the same bound as context values.
+- **Truncation could split a redaction placeholder**, leaving
+  `[redacted:ema` — which reads like leaked data rather than a mask.
+  Truncation now pulls back to before the placeholder.
+- **`JsonlFileSink.add` could throw**, violating `LogSink`'s documented
+  "must never throw" contract. `_rotate`'s reopen was unguarded, so a full
+  disk or a deleted log directory propagated into the caller — right when a
+  crash was being logged. It now degrades to dropping events.
+
+### Changed
+
+- Leveled methods (`trace`/`debug`/`info`/`warn`/`errorMessage`) take
+  `String?` instead of `String`, to support the checkpoint form. Existing
+  calls are unaffected.
+- `schemaLegend()` no longer claims `seq` is comparable across writers — it
+  is monotonic within one `ses` only, which matters when native crash-time
+  writes and Dart writes share a file.
+- `CausalBuffer` documents honestly that untraced events share one bucket,
+  so a chain on an untraced error may include unrelated events.
+
 ## 0.1.1
 
 - Added `Logger.logError` to emit a pre-built `ErrorInfo` for errors that

@@ -134,6 +134,37 @@ void main() {
       expect(result, [1, 2, 3, '…+2 more items']);
     });
 
+    test('never truncates in the middle of a redaction placeholder', () {
+      // A cut landing inside `[redacted:email#abc123]` would leave something
+      // like `[redacted:ema`, which reads like leaked data rather than a
+      // mask. The truncation must pull back to before the placeholder.
+      final sanitizer = Sanitizer(
+        redactor: Redactor(salt: 'fixed'),
+        limits: const SanitizerLimits(maxStringLength: 20),
+      );
+
+      for (var padding = 0; padding < 30; padding++) {
+        final input = '${'x' * padding}alice@example.com and more text here';
+        final result = sanitizer.sanitizeText(input);
+        final openCount = '[redacted:'.allMatches(result).length;
+        final closeCount = ']'.allMatches(result).length;
+        expect(
+          closeCount,
+          greaterThanOrEqualTo(openCount),
+          reason:
+              'padding=$padding produced an unterminated placeholder: $result',
+        );
+      }
+    });
+
+    test('sanitizeText bounds a standalone string like context values', () {
+      final sanitizer = Sanitizer(
+        redactor: Redactor.disabled(),
+        limits: const SanitizerLimits(maxStringLength: 10),
+      );
+      expect(sanitizer.sanitizeText('0123456789ABCDEF'), '0123456789…+6 chars');
+    });
+
     test('handles circular references without throwing', () {
       final sanitizer = Sanitizer(redactor: Redactor.disabled());
       final map = <String, Object?>{'name': 'root'};

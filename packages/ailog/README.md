@@ -1,40 +1,45 @@
 # ailog
 
-AI解析に最適化された、依存ゼロのPure Dart構造化ロガー。
+A zero-dependency, pure Dart structured logger designed to be read by an AI.
 
-人間がターミナルで読むログと、AIに解析させるログは最適な形が違う。
-`ailog` は後者に振り切っている: 1行1JSON（JSONL）で出力し、各行が
-**それ単体で診断に必要な情報を持つ** ように設計されている。
+Logs a human scrolls through in a terminal and logs an AI diagnoses from want
+different shapes. `ailog` commits fully to the second: one JSON object per
+line (JSONL), where **each line carries what's needed to diagnose it on its
+own**.
 
-## なぜ
+## Why
 
-大量のログをAIに渡して原因調査させると、コストのほとんどは
-「エラー直前の文脈を探すためにファイル全体を読ませる」ことに消える。
-`ailog` はその手戻りをなくす:
+Hand a normal log file to an AI and most of the cost goes into one thing:
+reading the whole file just to reconstruct what happened before an error.
+`ailog` removes that step:
 
-- **トレース/セッション相関** — `startTrace` / `span` で発行したIDが
-  `Zone` 経由で自動伝播。手動でIDを引き回す必要がない。
-- **因果チェーン** — エラー行に、直前の同一トレース内イベントが
-  自動的に埋め込まれる。1行読むだけで経緯がわかる。
-- **エラー自動指紋化** — スタックトレースを正規化してハッシュ化し、
-  同じバグの別発生を自動グルーピング。行番号のズレやメッセージ内の
-  可変値（ID・数値）に左右されない。
-- **機密情報の自動マスキング** — メール・トークン・カード番号などを
-  正規表現+検証ロジックで検出し `[redacted:kind#hash]` に置換。
-  同じ値は同じハッシュになるので、値自体は見えなくても
-  「同一ユーザーが複数行に登場している」ことは追跡できる。
-- **AI向けダイジェストCLI** — 数十万行のJSONLを、エラー発生頻度順に
-  ランキングしたMarkdown/JSONの要約に圧縮する `ailog_digest` コマンド。
+- **Causal chain** — each error line embeds the events that preceded it in
+  the same trace. One line, whole story.
+- **Trace / span correlation** — IDs issued by `startTrace` / `span`
+  propagate automatically through `Zone`, including across `await` gaps. No
+  threading a request ID through fifteen function signatures.
+- **Error fingerprinting** — stack traces are normalized (line numbers and
+  varying values stripped) and hashed, so the same bug groups together
+  across occurrences.
+- **Checkpoints** — `logger.checkpoint()` records *where it was called*
+  (`→ checkout.dart:42 CartService.charge`) with no message to write.
+- **Automatic redaction** — emails, tokens, card numbers and friends are
+  detected and replaced with `[redacted:kind#hash]`. The hash is stable
+  within a file, so "the same user appears in these five lines" survives
+  even though the value doesn't.
+- **Digest CLI** — `ailog_digest` compresses hundreds of thousands of lines
+  into a frequency-ranked Markdown/JSON summary that fits in a context
+  window.
 
-## インストール
+## Install
 
 ```yaml
 dependencies:
   ailog:
-    path: ../ailog # または pub.dev 公開後は通常の version 指定
+    path: ../ailog   # or a version constraint once published
 ```
 
-## 使い方
+## Usage
 
 ```dart
 import 'package:ailog/ailog.dart';
@@ -43,16 +48,17 @@ Future<void> main() async {
   final logger = Logger.create(
     sink: MultiSink([
       JsonlFileSink(path: '.ailog/app.jsonl'),
-      LevelFilterSink(ConsoleSink(), LogLevel.info), // 開発時は人間可読
+      LevelFilterSink(ConsoleSink(), LogLevel.info),  // human-readable in dev
     ]),
   );
 
   final scope = logger.startTrace(context: {'requestId': 'req-1'});
   await runWithScope(scope, () async {
-    logger.info('checkout started', context: {'userEmail': 'alice@example.com'});
+    logger.info('checkout started', context: {'userEmail': 'a@example.com'});
 
     await logger.span('charge_card', (span) async {
-      // 失敗するとエラー・所要時間・因果チェーンが自動記録される
+      // On failure: the error, its duration and the causal chain are all
+      // recorded automatically, and the exception still propagates.
       await chargeCard();
     });
   });
@@ -61,86 +67,156 @@ Future<void> main() async {
 }
 ```
 
-出力される1行 (整形済み):
+One emitted line, formatted for readability:
 
-```json
+```jsonc
 {
   "ts": "2026-07-25T10:09:32.405471Z",
   "lvl": "error",
   "msg": "Exception: card declined",
   "lg": "app",
-  "tr": "2efd38d3...",
-  "sp": "...",
+  "tr": "2efd38d3...",           // trace: one logical operation
+  "sp": "...",                   // span within the trace
   "ctx": { "requestId": "req-1" },
   "err": {
     "t": "_Exception",
     "m": "Exception: card declined",
-    "fp": "56161699",
+    "fp": "56161699",            // fingerprint: the grouping key
     "fr": ["checkout.dart:42 CartService.charge", "..."]
   },
-  "chain": [
+  "chain": [                     // what happened just before, same trace
     { "dt": -24, "lvl": "info", "msg": "checkout started",
       "ctx": { "userEmail": "[redacted:email#892c8bf7]" } }
   ]
 }
 ```
 
-ファイルの先頭行には各キーの意味を説明する `_hdr` レコードが自動で
-書き込まれるため、外部ドキュメントなしでAIがフォーマットを理解できる。
+Every file starts with an `_hdr` record documenting what each key means, so
+an AI can interpret the format with no external documentation.
 
-## サブシステムごとのロガー
+## Checkpoints — logging *where*, not *what*
+
+Sometimes you want to know a code path executed, and writing a message for it
+is busywork that ends up as noise (`'here'`, `'step 2'`, `'in handler'`).
+`checkpoint()` records the call site instead:
+
+```dart
+Future<void> charge() async {
+  logger.checkpoint();                    // → checkout.dart:12 CartService.charge
+  await gateway.send();
+  logger.checkpoint();                    // → checkout.dart:14 CartService.charge
+}
+```
+
+Emitted lines are tagged `checkpoint` and prefixed with `→`, so they're
+trivially greppable and an AI can tell them apart from deliberate messages.
+They stay correct when the code moves, unlike hand-written markers.
+
+Checkpoints default to `LogLevel.trace`, so a production `minimumLevel` of
+`debug` or higher filters them out — and they cost nothing there, because the
+stack is only captured *after* the level check passes.
+
+`logger.info(null)` is the same thing at a different level. (Dart doesn't
+allow optional positional and named parameters in one signature, so
+`logger.info()` with no arguments at all can't coexist with the `context:` /
+`tags:` named parameters — hence the explicit `null`.)
+
+## Per-subsystem loggers
 
 ```dart
 final dbLogger = logger.child('db');
 final httpLogger = logger.child('http');
 ```
 
-`child` で作った全ロガーは、同じセッション・シーケンス番号・因果バッファを
-共有する。トレース内で複数のサブシステムをまたいでも順序と相関が保たれる。
+Every logger derived with `child` shares one session ID, one sequence
+counter and one causal buffer, so ordering and correlation hold even when a
+single trace crosses several subsystems.
 
-## サンプル
-
-- [`example/main.dart`](example/main.dart) — 最小構成のクイックスタート
-- [`example/advanced_example.dart`](example/advanced_example.dart) — 子ロガー、
-  開発/本番でのシンク使い分け、カスタムマスキングルール、`DigestBuilder` を
-  CLIを介さず直接使う例
-
-## AI向けダイジェスト
+## AI digest
 
 ```sh
 dart run ailog:ailog_digest .ailog/app.jsonl
 ```
 
-エラーを発生頻度順にランキングし、各グループの代表フレーム・直近の
-因果チェーンをMarkdownで出力する。数十万行のログでも出力サイズは
-`--max-groups` で上限を制御できる。
+Ranks errors by occurrence count and prints, per group, the representative
+frames and the causal chain of the most recent occurrence. Output size is
+bounded with `--max-groups`.
 
 ```sh
 dart run ailog:ailog_digest .ailog/app.jsonl --format json --max-groups 10 -o digest.json
 ```
 
-## 機密情報マスキング
+`DigestBuilder` is also exported, so you can build the same summary in-process
+(for an admin screen, a Slack notification, and so on) without shelling out:
 
-デフォルトで有効なルール: メール、JWT、Bearerトークン、Basic認証URL、
-AWS/GCP/GitHub/Slack/Stripeの各種キー、Luhn検証付きカード番号、
-秘密鍵ブロック、日本の電話番号形式など。
+```dart
+final builder = DigestBuilder();
+for (final line in File(path).readAsLinesSync()) {
+  builder.addLine(line);
+}
+print(builder.build().toMarkdown(maxGroups: 5));
+```
 
-`password` `token` `secret` `apiKey` のようなフィールド名は、値の中身に
-関わらず丸ごとマスクされる（`Redactor.sensitiveKeyPattern` でカスタマイズ可）。
+## Redaction
 
-ローカルデバッグでマスキングを無効化したい場合のみ
-`Redactor.disabled()` を使用する。
+Enabled by default: emails, JWTs, bearer tokens, basic-auth URLs,
+AWS/GCP/GitHub/Slack/Stripe keys, Luhn-validated card numbers, private key
+blocks, and Japanese phone number formats.
 
-## Flutterで使う場合
+Field *names* matching `password`, `token`, `secret`, `apiKey` and similar
+are masked wholesale regardless of the value's shape — customize via
+`Redactor.sensitiveKeyPattern`.
 
-`FlutterError.onError` などの自動フックが必要な場合は
-[`ailog_flutter`](../ailog_flutter) アドオンパッケージを参照。
+Add your own rules:
 
-## 制限事項
+```dart
+Logger.create(
+  sink: sink,
+  redactor: Redactor(
+    rules: [
+      ...builtInRedactionRules.where((r) => r.enabledByDefault),
+      RedactionRule(name: 'ticket', pattern: RegExp(r'\bTICKET-\d{3,}\b')),
+    ],
+  ),
+);
+```
 
-- `JsonlFileSink` はVM/ネイティブ専用（ファイルシステムが必要）。
-  Web上では `MemorySink` や独自の `LogSink` 実装（収集サーバーへの送信など）
-  を使用すること。
-- 機密情報マスキングは正規表現ベースのベストエフォート。
-  構造化フィールド（`context` のキー名によるマスキング）と
-  組み合わせて多層防御として使うことを推奨する。
+Use `Redactor.disabled()` only for local, throwaway debugging.
+
+## Sinks
+
+| Sink | Purpose |
+|---|---|
+| `JsonlFileSink` | Appends JSONL to a file with size-based rotation (`app.jsonl.1` … `.N`) |
+| `ConsoleSink` | Human-readable, colorized terminal output |
+| `MultiSink` | Fans out to several sinks; a failing sink is isolated, not fatal |
+| `LevelFilterSink` | Wraps a sink with its own minimum level |
+| `MemorySink` | Keeps events in memory — for tests and in-app log viewers |
+
+Implement `LogSink` for anything else (shipping to a collector, forwarding to
+Crashlytics/Sentry, and so on).
+
+## Examples
+
+- [`example/main.dart`](example/main.dart) — minimal quick start
+- [`example/advanced_example.dart`](example/advanced_example.dart) — child
+  loggers, dev/prod sink split, custom redaction rules, and using
+  `DigestBuilder` directly
+
+## Using it with Flutter
+
+For automatic `FlutterError.onError` hooks, navigation breadcrumbs and native
+(Kotlin/Swift) logging, see the [`ailog_flutter`](../ailog_flutter) add-on.
+
+## Limitations
+
+- `JsonlFileSink` requires a filesystem, so it's VM/native only. On the web,
+  use `MemorySink` or your own `LogSink` (e.g. posting to a collector).
+- **`JsonlFileSink` is isolate-local.** Two isolates each constructing their
+  own sink over the same path will interleave writes and rotate
+  independently. If you log from background isolates, give each one its own
+  file path (`app.main.jsonl`, `app.worker.jsonl`) — `ailog_digest` accepts
+  multiple files and merges them.
+- Redaction is regex-based best-effort. Combine it with structured fields
+  (key-name-based masking of `context`) as defense in depth rather than
+  relying on pattern matching alone.

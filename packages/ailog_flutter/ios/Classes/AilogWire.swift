@@ -240,16 +240,33 @@ enum AilogJsonlWriter {
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            if FileManager.default.fileExists(atPath: path) {
-                guard let handle = FileHandle(forWritingAtPath: path) else { return }
-                defer { handle.closeFile() }
-                handle.seekToEndOfFile()
-                handle.write(data)
-            } else {
-                FileManager.default.createFile(atPath: path, contents: data)
-            }
         } catch {
-            // Best effort: a failed crash-time write must never throw further.
+            // Directory may already exist, or be uncreatable. Either way, fall
+            // through and let open() decide — a crash-time write must never
+            // throw further.
+        }
+
+        // O_APPEND, not seek-then-write. The kernel resolves the offset as
+        // part of the same write() call, so a Dart isolate appending to the
+        // same file concurrently can't cause this line to land at a stale
+        // offset and clobber theirs. This mirrors the Kotlin writer, which
+        // gets the same guarantee via FileOutputStream(file, append = true).
+        let descriptor = path.withCString { cPath in
+            open(cPath, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        }
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+
+        data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
+            guard let base = buffer.baseAddress else { return }
+            var written = 0
+            while written < buffer.count {
+                let n = write(descriptor, base + written, buffer.count - written)
+                // A short write is legal; retry the remainder. Give up on a
+                // hard error rather than spinning inside a crash handler.
+                if n <= 0 { break }
+                written += n
+            }
         }
     }
 }

@@ -12,7 +12,7 @@ ErrorWidget.builder, records navigation as trace events, and bridges native
 (iOS/Android) logging into the same JSONL output via a MethodChannel, with a
 direct-write fallback for crashes that happen after the Flutter engine is gone.
                        DESC
-  s.homepage         = 'https://github.com/FuruyamaMasayuki/ailog'
+  s.homepage         = 'https://github.com/FuruyamaMasayuki/ai-readable-logs'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'ailog' => 'noreply@example.com' }
   s.source           = { :path => '.' }

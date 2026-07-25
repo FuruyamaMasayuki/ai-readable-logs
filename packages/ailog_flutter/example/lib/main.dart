@@ -1,18 +1,19 @@
-// ailog_flutter の最小限の使用例。
+// Minimal runnable example for ailog_flutter.
 //
-// - AilogFlutter.install でフレームワークのエラー通知を自動記録
-// - AilogNativeBridge.install でiOS/AndroidネイティブコードのログをDartと同じ
-//   JSONLに合流させる(通常はMethodChannel経由、クラッシュ時のみネイティブ側が
-//   直接ファイルに書き込む)
-// - AilogNavigatorObserver で画面遷移をトレース記録
-// - runAppGuarded でzoneレベルの未捕捉エラーも記録
+// - `AilogFlutter.install` records the framework's error channels
+// - `AilogNativeBridge.install` merges native iOS/Android logging into the
+//   same JSONL file (normally over the MethodChannel; only on a crash does
+//   the native side write the file directly)
+// - `AilogNavigatorObserver` records navigation
+// - `runAppGuarded` catches anything that escapes the zone
 //
-// 5つのボタンでそれぞれの記録経路を実際に発火させて確認できる:
-//   1. 画面遷移       -> AilogNavigatorObserver
-//   2. 捕捉済みエラー -> 通常の logger.error()
-//   3. Widgetビルドエラー -> ErrorWidget.builder フック
-//   4. 非同期の未捕捉エラー -> PlatformDispatcher.onError フック
-//   5. ネイティブ側からのログ -> Ailog.info(Kotlin/Swift) -> MethodChannel
+// Each button fires one recording path:
+//   1. Navigation        -> AilogNavigatorObserver
+//   2. Caught error      -> a plain logger.error()
+//   3. Widget build error-> ErrorWidget.builder hook
+//   4. Uncaught async    -> PlatformDispatcher.onError hook
+//   5. Native log        -> Ailog.info() in Kotlin/Swift -> MethodChannel
+//   6. Checkpoint        -> logger.checkpoint(), message-free "this ran"
 import 'dart:async';
 import 'dart:io';
 
@@ -27,16 +28,21 @@ void main() {
   logger = Logger.create(
     sink: MultiSink([
       JsonlFileSink(path: logFile),
-      LevelFilterSink(ConsoleSink(), LogLevel.info),
+      LevelFilterSink(ConsoleSink(), LogLevel.trace),
     ]),
+    // Checkpoints default to `trace`, so keep the threshold there to see them
+    // in this demo. Production would typically use `debug` or higher, which
+    // filters them out at no cost.
+    minimumLevel: LogLevel.trace,
   );
 
-  // 既存のエラーハンドラ(あれば)をchainしつつ、JSONLへの記録を追加する。
+  // Adds JSONL recording while chaining any existing error handlers.
   AilogFlutter.install(logger);
 
-  // iOS/Androidのネイティブ側に同じログファイルのパスを伝える。ネイティブ側は
-  // 通常このパスを直接使わずMethodChannel経由でここに転送するが、クラッシュで
-  // Flutterエンジンが落ちた後だけこのパスに直接書き込む(README参照)。
+  // Tell the native side which file to use for crash-time fallback writes.
+  // In normal operation native logs come back over the MethodChannel and are
+  // written by Dart; this path is only used when an uncaught native exception
+  // may have taken the Flutter engine with it. See the package README.
   nativeBridge = AilogNativeBridge.install(logger, logFilePath: logFile);
 
   runAppGuarded(logger, () {
@@ -75,18 +81,19 @@ class HomePage extends StatelessWidget {
           children: [
             ElevatedButton(
               onPressed: () => Navigator.of(context).pushNamed('/details'),
-              child: const Text('1. 画面遷移をログに残す'),
+              child: const Text('1. Navigate (route breadcrumb)'),
             ),
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: () {
                 try {
+                  // The email is redacted before it reaches the file.
                   throw StateError('card declined for alice@example.com');
                 } catch (error, stack) {
                   logger.error(error, stack, context: {'screen': 'home'});
                 }
               },
-              child: const Text('2. 捕捉済みエラーをログに残す'),
+              child: const Text('2. Log a caught error'),
             ),
             const SizedBox(height: 12),
             ElevatedButton(
@@ -96,23 +103,32 @@ class HomePage extends StatelessWidget {
                   builder: (_) => const _BrokenWidget(),
                 ),
               ),
-              child: const Text('3. Widgetビルドエラーをログに残す'),
+              child: const Text('3. Trigger a widget build error'),
             ),
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: () {
-                // わざとtry/catchの外で投げる。PlatformDispatcher.onError
-                // フック経由でfatalとして記録される。
+                // Deliberately thrown outside any try/catch: recorded as
+                // fatal via the PlatformDispatcher.onError hook.
                 scheduleMicrotask(() {
                   throw StateError('uncaught error from a callback');
                 });
               },
-              child: const Text('4. 非同期の未捕捉エラーをログに残す'),
+              child: const Text('4. Throw an uncaught async error'),
             ),
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: () => nativeBridge.requestNativeTestLog(),
-              child: const Text('5. ネイティブ側からログを出す'),
+              child: const Text('5. Log from native (Kotlin/Swift)'),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: () {
+                // No message: the log line becomes the call site itself,
+                // e.g. "→ main.dart:120 HomePage.build.<anonymous closure>".
+                logger.checkpoint();
+              },
+              child: const Text('6. Record a checkpoint (no message)'),
             ),
           ],
         ),
@@ -128,13 +144,16 @@ class DetailsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Details')),
-      body: const Center(child: Text('このページの表示自体が route pushed として記録されている')),
+      body: const Center(
+        child: Text('Reaching this page was itself recorded as "route pushed"'),
+      ),
     );
   }
 }
 
-/// build() が常に例外を投げるWidget。ErrorWidget.builder フックが
-/// 起動することを確認するためのデモ用。
+/// A widget whose `build()` always throws, to demonstrate that the
+/// `ErrorWidget.builder` hook records the cause without changing what the
+/// user sees.
 class _BrokenWidget extends StatelessWidget {
   const _BrokenWidget();
 

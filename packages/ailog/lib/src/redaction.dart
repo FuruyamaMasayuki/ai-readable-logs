@@ -124,12 +124,51 @@ final List<RedactionRule> builtInRedactionRules = [
 ];
 
 /// Field names whose *value* is masked regardless of what it looks like.
+///
+/// Matched against the key's individual *words*, not as a bare substring:
+/// keys are split on camelCase boundaries, `_`, `-` and `.`, and each word is
+/// tested. A bare substring match over-redacts badly — `pin` alone hits
+/// `shippingAddress`, `spinnerValue` and `opinionText`; `auth` alone hits
+/// `bookAuthor` and `coAuthorEmail` — and silently destroying ordinary
+/// fields defeats the point of a log meant to be analyzed.
+///
+/// Short, ambiguous words (`pin`, `otp`, `mfa`, `cvv`) therefore only match
+/// as whole words, while longer distinctive ones still match as prefixes of
+/// a word (so `tokenValue` → word `token`, `refreshToken` → word `refresh`).
 final RegExp defaultSensitiveKeyPattern = RegExp(
-  r'pass(word|wd)?|secret|token|api[_-]?key|auth(orization)?|credential|'
-  r'cookie|session[_-]?id|private[_-]?key|access[_-]?key|refresh|signature|'
-  r'pin|cvv|otp|mfa|seed[_-]?phrase|mnemonic',
+  // Trailing `s?` on the longer words so plurals (`credentials`, `secrets`,
+  // `tokens`) match too.
+  r'^(?:'
+  r'pass(?:word|wd)?s?|secrets?|tokens?|apikeys?|auth(?:orization)?|'
+  r'credentials?|cookies?|session|privatekeys?|accesskeys?|refresh|'
+  r'signatures?|pin|cvv|otp|mfa|seedphrases?|mnemonics?'
+  r')$',
   caseSensitive: false,
 );
+
+/// Splits a field name into comparable words: `refreshToken` → `[refresh,
+/// token]`, `api_key` → `[api, key]`, `x-auth-token` → `[x, auth, token]`.
+///
+/// Adjacent word pairs are also emitted joined (`apikey`, `privatekey`,
+/// `sessionid`) so multi-word secrets match without needing a separator in
+/// the pattern.
+List<String> sensitiveKeyWords(String key) {
+  final parts = key
+      .replaceAllMapped(
+        RegExp(r'([a-z0-9])([A-Z])'),
+        (m) => '${m[1]} ${m[2]}',
+      )
+      .split(RegExp(r'[\s_\-.]+'))
+      .where((part) => part.isNotEmpty)
+      .map((part) => part.toLowerCase())
+      .toList();
+
+  final words = <String>[...parts];
+  for (var i = 0; i + 1 < parts.length; i++) {
+    words.add('${parts[i]}${parts[i + 1]}');
+  }
+  return words;
+}
 
 /// Applies [RedactionRule]s to strings and to map keys.
 class Redactor {
@@ -180,7 +219,26 @@ class Redactor {
   }
 
   /// Whether a structured field named [key] must be masked wholesale.
-  bool isSensitiveKey(String key) => sensitiveKeyPattern.hasMatch(key);
+  ///
+  /// The key is split into words first (see [sensitiveKeyWords]) so
+  /// `refreshToken` and `api_key` match while `bookAuthor` and
+  /// `shippingAddress` do not.
+  ///
+  /// A custom [sensitiveKeyPattern] that is not anchored (no `^`/`$`) still
+  /// works as a plain substring test against the whole key — that keeps
+  /// simple user-supplied patterns like `RegExp('internalId')` behaving the
+  /// way they read.
+  bool isSensitiveKey(String key) {
+    for (final word in sensitiveKeyWords(key)) {
+      if (sensitiveKeyPattern.hasMatch(word)) return true;
+    }
+    // Unanchored custom patterns are also tried against the raw key.
+    final source = sensitiveKeyPattern.pattern;
+    if (!source.startsWith('^') && !source.endsWith(r'$')) {
+      return sensitiveKeyPattern.hasMatch(key);
+    }
+    return false;
+  }
 
   /// Masks the whole value of a sensitive field, keeping a correlation token
   /// so that "the token changed between these two requests" stays visible.

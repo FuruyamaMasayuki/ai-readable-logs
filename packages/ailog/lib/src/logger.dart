@@ -3,6 +3,7 @@ library;
 
 import 'dart:async';
 
+import 'call_site.dart';
 import 'causal_buffer.dart';
 import 'context.dart';
 import 'ids.dart';
@@ -160,27 +161,81 @@ class Logger {
 
   // --- Leveled logging -----------------------------------------------------
 
-  void trace(String message,
-          {Map<String, Object?>? context, List<String>? tags}) =>
+  //
+  // Every method here also accepts a null [message]. Passing null — or
+  // calling [checkpoint] — turns the call into a **checkpoint**: ailog
+  // captures the call site and logs
+  // `→ package:my_app/checkout.dart:42 CartService.charge` instead, plus a
+  // `checkpoint` tag. That beats a hand-written `'here'` string for proving
+  // a path ran, and it stays correct when the code moves.
+  //
+
+  void trace(
+    String? message, {
+    Map<String, Object?>? context,
+    List<String>? tags,
+  }) =>
       log(LogLevel.trace, message, context: context, tags: tags);
 
-  void debug(String message,
-          {Map<String, Object?>? context, List<String>? tags}) =>
+  void debug(
+    String? message, {
+    Map<String, Object?>? context,
+    List<String>? tags,
+  }) =>
       log(LogLevel.debug, message, context: context, tags: tags);
 
-  void info(String message,
-          {Map<String, Object?>? context, List<String>? tags}) =>
+  void info(
+    String? message, {
+    Map<String, Object?>? context,
+    List<String>? tags,
+  }) =>
       log(LogLevel.info, message, context: context, tags: tags);
 
-  void warn(String message,
-          {Map<String, Object?>? context, List<String>? tags}) =>
+  void warn(
+    String? message, {
+    Map<String, Object?>? context,
+    List<String>? tags,
+  }) =>
       log(LogLevel.warn, message, context: context, tags: tags);
 
   /// Logs a message at [LogLevel.error]. For a caught exception, prefer
   /// [error] so the fingerprint and stack frames are captured.
-  void errorMessage(String message,
-          {Map<String, Object?>? context, List<String>? tags}) =>
+  void errorMessage(
+    String? message, {
+    Map<String, Object?>? context,
+    List<String>? tags,
+  }) =>
       log(LogLevel.error, message, context: context, tags: tags);
+
+  /// Records that this line of code ran, without writing a message.
+  ///
+  /// The emitted event's `msg` becomes the call site
+  /// (`→ package:my_app/checkout.dart:42 CartService.charge`) and it is
+  /// tagged `checkpoint`. Use it to make a code path's execution visible
+  /// without inventing throwaway strings:
+  ///
+  /// ```dart
+  /// Future<void> charge() async {
+  ///   logger.checkpoint();          // → checkout.dart:12 CartService.charge
+  ///   await gateway.send();
+  ///   logger.checkpoint();          // → checkout.dart:14 CartService.charge
+  /// }
+  /// ```
+  ///
+  /// Defaults to [LogLevel.trace], so a production `minimumLevel` of `debug`
+  /// or higher filters checkpoints out and they cost nothing there — the
+  /// call site is only captured after the level check passes.
+  ///
+  /// `logger.info(null)` is equivalent at a different level. (Dart does not
+  /// allow optional positional and named parameters in one signature, so
+  /// `logger.info()` with no arguments at all cannot coexist with the
+  /// `context:`/`tags:` named parameters — hence the explicit `null`.)
+  void checkpoint({
+    LogLevel level = LogLevel.trace,
+    Map<String, Object?>? context,
+    List<String>? tags,
+  }) =>
+      log(level, null, context: context, tags: tags);
 
   /// Logs a caught exception at [LogLevel.error] with a stable fingerprint,
   /// normalized stack frames and (if enabled) its causal chain.
@@ -224,7 +279,7 @@ class Logger {
     final info = ErrorInfo.from(
       errorObject,
       stackTrace,
-      sanitizeText: (text) => _core.sanitizer.redactor.redactString(text),
+      sanitizeText: _core.sanitizer.sanitizeText,
     );
     _emit(
       level,
@@ -254,12 +309,12 @@ class Logger {
     LogLevel level = LogLevel.error,
     int? durationMs,
   }) {
-    final redactor = _core.sanitizer.redactor;
+    final sanitizer = _core.sanitizer;
     ErrorInfo sanitize(ErrorInfo source) => ErrorInfo(
           type: source.type,
-          message: redactor.redactString(source.message),
+          message: sanitizer.sanitizeText(source.message),
           fingerprint: source.fingerprint,
-          frames: source.frames.map(redactor.redactString).toList(),
+          frames: source.frames.map(sanitizer.sanitizeText).toList(),
           cause: source.cause == null ? null : sanitize(source.cause!),
         );
 
@@ -274,21 +329,28 @@ class Logger {
     );
   }
 
+  /// Logs at [level]. A null [message] makes this a checkpoint — see
+  /// [checkpoint].
   void log(
     LogLevel level,
-    String message, {
+    String? message, {
     Map<String, Object?>? context,
     List<String>? tags,
     int? durationMs,
   }) =>
-      _emit(level, message,
-          context: context, tags: tags, durationMs: durationMs);
+      _emit(
+        level,
+        message,
+        context: context,
+        tags: tags,
+        durationMs: durationMs,
+      );
 
   // --- Core emission ---------------------------------------------------
 
   void _emit(
     LogLevel level,
-    String message, {
+    String? message, {
     Map<String, Object?>? context,
     List<String>? tags,
     ErrorInfo? error,
@@ -300,10 +362,24 @@ class Logger {
     final mergedContext = {...scope.fields, ...?context};
     final mergedTags = [...scope.tags, ...?tags];
 
+    // A message-less call is a checkpoint: synthesize one from the call site
+    // so the line still says *where* execution reached. Capturing the stack
+    // is only paid here — after the level filter — so checkpoints below
+    // `minimumLevel` cost nothing.
+    var resolvedMessage = message;
+    if (resolvedMessage == null) {
+      resolvedMessage = captureCallSite()?.render() ?? '';
+      mergedTags.add('checkpoint');
+    }
+
     final event = LogEvent(
       time: DateTime.now(),
       level: level,
-      message: _core.sanitizer.redactor.redactString(message),
+      // Redact *and* bound the message. Without the length bound a single
+      // `logger.info(hugeString)` could put megabytes on one line and eat an
+      // entire model context window — the same budget guarantee `Sanitizer`
+      // makes for context values applies here.
+      message: _core.sanitizer.sanitizeText(resolvedMessage),
       logger: name,
       sessionId: _core.sessionId,
       sequence: _core.sequence.next(),

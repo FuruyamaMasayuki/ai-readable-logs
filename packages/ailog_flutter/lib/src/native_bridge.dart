@@ -19,8 +19,8 @@
 ///   names, so `ailog_digest` groups them by fingerprint like everything
 ///   else.
 ///
-/// See the platform READMEs (`android/README.md`, `ios/README.md`) for the
-/// exact wire contract and how to call this from Kotlin/Swift.
+/// See the package README for the wire contract, platform limitations, and
+/// how to call this from Kotlin/Swift.
 library;
 
 import 'dart:async';
@@ -47,6 +47,16 @@ class AilogNativeBridge {
   /// doesn't implement the `configure` handler (or no platform plugin is
   /// registered — e.g. running on a platform without a native counterpart),
   /// the call fails silently; forwarding native→Dart logging still works.
+  ///
+  /// **Startup window**: `configure` is dispatched asynchronously and this
+  /// method does not wait for it. Until it lands, the native side has no
+  /// path to write to, so a native crash in that window is *not* captured by
+  /// the crash-time fallback — it is dropped rather than written. The window
+  /// is small (one platform-channel round trip) but real, and it overlaps
+  /// exactly with early-startup native initialization, where crashes are
+  /// relatively common. There is no way to close it from Dart: the engine
+  /// must be up before any channel call is possible. Rely on a dedicated
+  /// native crash reporter if early-startup crashes matter to you.
   ///
   /// Returns the bridge so callers can hold onto it for [dispose] or
   /// [requestNativeTestLog]; most apps can discard the return value.
@@ -85,17 +95,33 @@ class AilogNativeBridge {
   Future<Object?> _handleCall(MethodCall call) async {
     if (call.method != 'logEvent') return null;
     final args = _asStringKeyedMap(call.arguments);
-    if (args != null) _forward(args);
+    if (args == null) return null;
+    try {
+      _forward(args);
+    } catch (error, stackTrace) {
+      // A malformed payload from a hand-written native caller must not take
+      // the channel handler down with it — and, since this *is* the logger,
+      // the failure itself is worth a line rather than a silent drop.
+      _logger.error(
+        error,
+        stackTrace,
+        message: 'ailog: malformed native log event dropped',
+        tags: const ['ailog-internal'],
+      );
+    }
     return null;
   }
 
   void _forward(Map<String, Object?> args) {
-    final level = LogLevel.tryParse(args['level'] as String?) ?? LogLevel.info;
+    // Everything below is read defensively: these values crossed a platform
+    // channel from hand-written Kotlin/Swift, so a wrong type here is a
+    // caller bug, not an invariant.
+    final level = LogLevel.tryParse(_asString(args['level'])) ?? LogLevel.info;
     final message = args['message']?.toString() ?? '';
     final context = _asStringKeyedMap(args['context']);
-    final tags = (args['tags'] as List?)?.map((e) => e.toString()).toList();
-    final durationMs = (args['durationMs'] as num?)?.toInt();
-    final loggerName = args['logger']?.toString();
+    final tags = _asStringList(args['tags']);
+    final durationMs = _asInt(args['durationMs']);
+    final loggerName = _asString(args['logger']);
     final target = loggerName == null ? _logger : _logger.child(loggerName);
 
     final errorArgs = _asStringKeyedMap(args['error']);
@@ -107,9 +133,7 @@ class AilogNativeBridge {
 
     final type = errorArgs['type']?.toString() ?? 'Error';
     final errorMessage = errorArgs['message']?.toString() ?? message;
-    final frames =
-        (errorArgs['frames'] as List?)?.map((f) => f.toString()).toList() ??
-            const <String>[];
+    final frames = _asStringList(errorArgs['frames']) ?? const <String>[];
 
     target.logError(
       ErrorInfo(
@@ -131,7 +155,24 @@ class AilogNativeBridge {
   }
 
   Map<String, Object?>? _asStringKeyedMap(Object? value) {
-    if (value is Map) return value.cast<String, Object?>();
+    if (value is! Map) return null;
+    return {
+      for (final entry in value.entries) entry.key.toString(): entry.value,
+    };
+  }
+
+  String? _asString(Object? value) =>
+      value is String ? value : value?.toString();
+
+  List<String>? _asStringList(Object? value) {
+    if (value is! Iterable) return null;
+    return value.map((e) => e.toString()).toList();
+  }
+
+  int? _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
     return null;
   }
 }

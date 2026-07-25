@@ -77,7 +77,11 @@ public class AilogFlutterPlugin: NSObject, FlutterPlugin {
                 error: NativeError(
                     type: exception.name.rawValue,
                     message: exception.reason ?? exception.name.rawValue,
-                    frames: exception.callStackSymbols
+                    // Bounded to match the Kotlin crash handler. The frames
+                    // that identify a crash are the first few; an unbounded
+                    // array just bloats the one writer that is supposed to be
+                    // minimal and best-effort.
+                    frames: Array(exception.callStackSymbols.prefix(20))
                 )
             )
             previousHandler?(exception)

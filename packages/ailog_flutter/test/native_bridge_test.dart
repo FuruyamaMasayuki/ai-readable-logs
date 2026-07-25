@@ -163,6 +163,53 @@ void main() {
       expect(sink.events.single.message, '');
     });
 
+    test('tolerates present-but-wrong-typed fields from a buggy native caller',
+        () async {
+      final sink = MemorySink();
+      final logger = Logger.forTesting(sink: sink);
+      AilogNativeBridge.install(logger);
+
+      // Every field here has the wrong type for its slot — the sort of thing
+      // a hand-written Kotlin/Swift caller gets wrong. None of it may throw
+      // out of the channel handler, and the event must still be recorded.
+      await _simulateNativeCall('logEvent', {
+        'level': 42, // should be a String
+        'message': 99, // should be a String
+        'tags': 'not-a-list', // should be a List
+        'durationMs': '120', // should be a num
+        'context': {7: 'int key'}, // non-String key
+      });
+
+      expect(sink.events, hasLength(1));
+      final event = sink.events.single;
+      expect(event.level, LogLevel.info,
+          reason: 'unparseable level falls back');
+      expect(event.message, '99');
+      expect(event.durationMs, 120, reason: 'numeric string is coerced');
+      expect(event.context['7'], 'int key');
+    });
+
+    test('a wrong-typed error payload still produces an event', () async {
+      final sink = MemorySink();
+      final logger = Logger.forTesting(sink: sink);
+      AilogNativeBridge.install(logger);
+
+      await _simulateNativeCall('logEvent', {
+        'level': 'error',
+        'message': 'native failure',
+        'error': {
+          'type': 7,
+          'message': null,
+          'frames': 'not-a-list',
+        },
+      });
+
+      final event = sink.events.single;
+      expect(event.error, isNotNull);
+      expect(event.error!.type, '7');
+      expect(event.error!.frames, isEmpty);
+    });
+
     test('dispose() detaches the handler so further calls are not forwarded',
         () async {
       final sink = MemorySink();

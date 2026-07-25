@@ -93,8 +93,17 @@ class JsonlFileSink implements LogSink {
   @override
   void add(LogEvent event) {
     if (_closed) return;
-    if (_bytesWritten >= maxBytes) _rotate();
-    _writeLine(event.toJson());
+    // A logger must never break the program it is observing, so every
+    // filesystem interaction below is contained here. Disk-full, a revoked
+    // permission, or the log directory being deleted out from under us are
+    // all real, and they tend to happen exactly when something is already
+    // going wrong and the log matters most.
+    try {
+      if (_bytesWritten >= maxBytes) _rotate();
+      _writeLine(event.toJson());
+    } catch (_) {
+      // Give up on this event rather than propagating into the caller.
+    }
   }
 
   void _rotate() {
@@ -117,7 +126,15 @@ class JsonlFileSink implements LogSink {
       // If rotation fails (permissions, a locked file on Windows) keep
       // logging into the existing file rather than losing events.
     }
-    _open();
+
+    try {
+      _open();
+    } catch (_) {
+      // Reopening failed (disk full, directory removed). Leave `_sink` null:
+      // `_writeLine` no-ops on a null sink, so the logger degrades to
+      // dropping events instead of throwing on every subsequent call.
+      _sink = null;
+    }
   }
 
   @override

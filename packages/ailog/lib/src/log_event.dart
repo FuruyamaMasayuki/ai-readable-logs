@@ -24,7 +24,9 @@ Map<String, Object?> schemaLegend() => {
       'tr': 'trace id: one logical operation (request, tap, job)',
       'sp': 'span id within the trace',
       'psp': 'parent span id',
-      'seq': 'monotonic sequence number, restores exact order',
+      'seq': 'monotonic sequence number within one writer (one "ses"); '
+          'restores exact order for events sharing a ses, but is NOT '
+          'comparable across different ses values in the same file',
       'dur': 'duration in ms (span completion events)',
       'tags': 'free-form labels',
       'ctx': 'structured context, secrets already masked',

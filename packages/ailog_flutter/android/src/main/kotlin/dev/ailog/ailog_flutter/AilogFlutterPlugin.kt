@@ -31,7 +31,17 @@ class AilogFlutterPlugin : FlutterPlugin, MethodCallHandler {
 
     companion object {
         private var crashHandlerInstalled = false
+
+        /**
+         * Written on the platform-channel thread by `configure`, read from
+         * whichever thread the uncaught-exception handler happens to run on.
+         * `@Volatile` establishes the happens-before relationship so the
+         * crashing thread actually observes the configured path instead of a
+         * stale null.
+         */
+        @Volatile
         private var configuredLogFilePath: String? = null
+
         private val installLock = Any()
 
         private fun installCrashHandlerOnce() {

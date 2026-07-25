@@ -189,6 +189,42 @@ void main() {
       expect(event.message, 'custom summary');
     });
 
+    test('a huge message is length-bounded, not written whole', () {
+      final sink = MemorySink();
+      final logger = Logger.create(
+        sink: sink,
+        sessionId: 's1',
+        limits: const SanitizerLimits(maxStringLength: 64),
+      );
+
+      logger.info('x' * 100000);
+
+      final message = sink.events.single.message;
+      expect(message.length, lessThan(200));
+      expect(message, contains('chars'));
+    });
+
+    test('a huge error message and frames are length-bounded too', () {
+      final sink = MemorySink();
+      final logger = Logger.create(
+        sink: sink,
+        sessionId: 's1',
+        limits: const SanitizerLimits(maxStringLength: 64),
+      );
+
+      try {
+        throw StateError('y' * 100000);
+      } catch (e, st) {
+        logger.error(e, st);
+      }
+
+      final error = sink.events.single.error!;
+      expect(error.message.length, lessThan(200));
+      for (final frame in error.frames) {
+        expect(frame.length, lessThan(200));
+      }
+    });
+
     test('logError() sanitizes a nested cause as well', () {
       final sink = MemorySink();
       final logger = Logger.create(sink: sink, sessionId: 's1');
