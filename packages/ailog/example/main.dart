@@ -1,36 +1,55 @@
-// Minimal end-to-end example: write a JSONL log containing a redacted secret
-// and a grouped error, then read it back through the digest CLI.
+// Start here. The smallest useful ailog setup, end to end.
 //
-// Run: dart run example/main.dart
+//   dart run example/main.dart
+//   dart run ailog:ailog_digest .ailog/app.jsonl
+//
+// The other files in this directory each go one step further; see the table
+// in the package README.
+//
+// ignore_for_file: avoid_print
+library;
+
 import 'package:ailog/ailog.dart';
 
 Future<void> main() async {
-  final fileSink = JsonlFileSink(path: '.ailog/app.jsonl');
-  final logger = Logger.create(sink: MultiSink([fileSink, ConsoleSink()]));
+  // One logger per process. JsonlFileSink writes the file an AI reads;
+  // ConsoleSink is the human-readable copy you watch while developing.
+  //
+  // On Flutter, a relative path like this is not writable on a device — use
+  // path_provider's getApplicationSupportDirectory(). See ailog_flutter.
+  final logger = Logger.create(
+    sink: MultiSink([
+      JsonlFileSink(path: '.ailog/app.jsonl'),
+      ConsoleSink(),
+    ]),
+  );
 
-  final scope = logger.startTrace(context: {'requestId': 'req-1'});
-  await runWithScope(scope, () async {
-    // The email address is masked before it reaches the file.
-    logger.info(
-      'handling checkout',
-      context: {'userEmail': 'alice@example.com'},
-    );
+  // A trace ties related lines together. Everything logged inside — even
+  // after an `await` — carries its id automatically, with no parameter
+  // threaded through your functions.
+  await runWithScope(logger.startTrace(context: {'requestId': 'req-1'}),
+      () async {
+    // The email is masked before it reaches the file, and the same address
+    // always masks to the same token, so you can still tell "same user".
+    logger
+        .info('handling checkout', context: {'userEmail': 'alice@example.com'});
 
     try {
+      // span() times the step. On failure it records the error, how long it
+      // took, and the events that led up to it — then rethrows, so your
+      // control flow is unchanged.
       await logger.span('charge_card', (span) async {
         throw Exception('card declined');
       });
     } catch (_) {
-      // Already recorded by span(); swallowed here for the demo.
+      // Already recorded by span(); swallowed here so the demo finishes.
     }
   });
 
-  await logger.flush();
-  await fileSink.close();
+  // close() flushes *and* stops the sink's background flush timer. Without
+  // it a short script like this one never exits.
+  await logger.close();
 
-  // ignore: avoid_print
-  print(
-    '\nWrote ${fileSink.path} — inspect it with:\n'
-    '  dart run ailog:ailog_digest ${fileSink.path}',
-  );
+  print('\nWrote .ailog/app.jsonl — now summarize it:\n'
+      '  dart run ailog:ailog_digest .ailog/app.jsonl');
 }

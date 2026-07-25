@@ -2,10 +2,64 @@
 
 A zero-dependency, pure Dart structured logger designed to be read by an AI.
 
-Logs a human scrolls through in a terminal and logs an AI diagnoses from want
+A log you scroll through in a terminal and a log an AI diagnoses from want
 different shapes. `ailog` commits fully to the second: one JSON object per
 line (JSONL), where **each line carries what's needed to diagnose it on its
 own**.
+
+## Install
+
+```sh
+dart pub add ailog        # or: flutter pub add ailog
+```
+
+Until the package is on pub.dev, depend on it straight from the repository:
+
+```yaml
+dependencies:
+  ailog:
+    git:
+      url: https://github.com/FuruyamaMasayuki/ai-readable-logs
+      path: packages/ailog
+```
+
+## Simplest thing that works
+
+```dart
+import 'package:ailog/ailog.dart';
+
+Future<void> main() async {
+  final logger = Logger.create(sink: JsonlFileSink(path: '.ailog/app.jsonl'));
+
+  logger.info('hello');
+  try {
+    throw Exception('card declined');
+  } catch (error, stackTrace) {
+    logger.error(error, stackTrace);
+  }
+
+  await logger.close();   // flushes; also stops the background flush timer
+}
+```
+
+That writes `.ailog/app.jsonl`. Hand it to an AI as-is, or summarize it
+first:
+
+```sh
+dart run ailog:ailog_digest .ailog/app.jsonl
+```
+
+Everything below is optional. Add it when you want it — traces to tie
+related lines together, a console sink to watch while developing, filters
+for when the file gets big.
+
+> **Flutter:** a relative path like `.ailog/` is not writable on a device.
+> Use `path_provider`, and see
+> [`ailog_flutter`](../ailog_flutter/README.md) for the rest of the setup:
+> ```dart
+> final dir = await getApplicationSupportDirectory();
+> JsonlFileSink(path: '${dir.path}/ailog/app.jsonl');
+> ```
 
 ## Why
 
@@ -33,8 +87,10 @@ reading the whole file just to reconstruct what happened before an error.
 
 ## Contents
 
-**Getting started** — [Install](#install) · [Usage](#usage) ·
-[Cheat sheet](#cheat-sheet) · [Examples](#examples)
+**Getting started** — [Install](#install) ·
+[Simplest thing that works](#simplest-thing-that-works) ·
+[The full picture](#the-full-picture) · [Cheat sheet](#cheat-sheet) ·
+[Examples](#examples)
 
 **Writing logs** — [Levels](#levels) ·
 [Traces and spans](#traces-and-spans) ·
@@ -51,23 +107,11 @@ reading the whole file just to reconstruct what happened before an error.
 **Operational** — [Redaction](#redaction) · [Sinks](#sinks) ·
 [Performance](#performance) · [Limitations](#limitations)
 
-## Install
+## The full picture
 
-```sh
-dart pub add ailog        # or: flutter pub add ailog
-```
-
-Until the package is on pub.dev, depend on it straight from the repository:
-
-```yaml
-dependencies:
-  ailog:
-    git:
-      url: https://github.com/FuruyamaMasayuki/ai-readable-logs
-      path: packages/ailog
-```
-
-## Usage
+The same program with everything switched on — two sinks, a trace, a timed
+span. Compare it with the minimal version above; every addition is optional
+and independently useful.
 
 ```dart
 import 'package:ailog/ailog.dart';
@@ -698,8 +742,8 @@ All are runnable with `dart run example/<file>`.
 
 | Example | What it shows |
 |---|---|
-| [`main.dart`](example/main.dart) | Minimal quick start: write a log with a redacted secret and a grouped error, then read it back through the digest |
-| [`walkthrough_example.dart`](example/walkthrough_example.dart) | **Start here.** A guided tour in the order you meet things: sinks, subsystem loggers, traces, spans, checkpoints, redaction, then the digest and the filtered report side by side |
+| [`main.dart`](example/main.dart) | **Start here.** The smallest useful setup, end to end: file + console, one trace, redaction, a failing span, then the digest |
+| [`walkthrough_example.dart`](example/walkthrough_example.dart) | The guided tour, in the order you meet things: subsystem loggers, checkpoints, then the digest and the filtered report side by side |
 | [`advanced_example.dart`](example/advanced_example.dart) | Child loggers, dev/prod sink split, custom redaction rules, `DigestBuilder` used directly |
 | [`ai_report_example.dart`](example/ai_report_example.dart) | A realistic connection-pool leak, then the three output forms — digest only, digest + events, raw JSONL — with their sizes side by side |
 | [`build_modes_example.dart`](example/build_modes_example.dart) | The three ways to restrict logging per build mode, and a measurement of what a disabled call costs |
