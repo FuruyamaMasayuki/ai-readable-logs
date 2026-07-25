@@ -1,0 +1,18 @@
+name: ailog
+description: >-
+  AI解析に最適化された構造化JSONLロガー。トレース相関・因果チェーン・
+  エラー自動指紋化・機密情報マスキング・AI向けダイジェスト生成を備えた
+  依存ゼロのPure Dartパッケージ。
+version: 0.1.0
+repository: https://github.com/FuruyamaMasayuki/ailog
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0
+
+executables:
+  ailog_digest: ailog_digest
