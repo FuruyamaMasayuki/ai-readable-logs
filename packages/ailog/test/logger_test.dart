@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:ailog/ailog.dart';
 import 'package:test/test.dart';
 
@@ -223,6 +225,198 @@ void main() {
       for (final frame in error.frames) {
         expect(frame.length, lessThan(200));
       }
+    });
+
+    test('breadcrumbs below minimumLevel still reach the causal chain', () {
+      // The regression this guards: breadcrumbs are naturally debug/trace,
+      // so if the buffer only saw emitted events, the standard production
+      // setting (minimumLevel: info) would leave every chain containing
+      // nothing but info lines already visible in the file — making the
+      // headline feature useless exactly where it matters.
+      final sink = MemorySink();
+      final logger = Logger.forTesting(sink: sink, minimumLevel: LogLevel.info);
+
+      runWithScope(logger.startTrace(), () {
+        logger.debug('gateway session age=610s'); // the actual clue
+        logger.trace('cache hit for key=orders');
+        logger.info('POST /checkout');
+        try {
+          throw StateError('gateway session expired');
+        } catch (e, st) {
+          logger.error(e, st);
+        }
+      });
+
+      // The file stays quiet: only info and the error were written.
+      expect(sink.events.map((e) => e.level), [LogLevel.info, LogLevel.error]);
+
+      // But the error carries the low-level detail that explains it.
+      final chain = sink.events.last.chain;
+      expect(chain.map((c) => c['msg']), [
+        'gateway session age=610s',
+        'cache hit for key=orders',
+        'POST /checkout',
+      ]);
+    });
+
+    test('breadcrumbLevel can be raised to skip buffering cheap levels', () {
+      final sink = MemorySink();
+      final logger = Logger.forTesting(
+        sink: sink,
+        minimumLevel: LogLevel.info,
+        breadcrumbLevel: LogLevel.debug,
+      );
+
+      runWithScope(logger.startTrace(), () {
+        logger.trace('too cheap to keep');
+        logger.debug('kept as a breadcrumb');
+        try {
+          throw StateError('boom');
+        } catch (e, st) {
+          logger.error(e, st);
+        }
+      });
+
+      expect(sink.events.last.chain.map((c) => c['msg']),
+          ['kept as a breadcrumb']);
+    });
+
+    test('breadcrumbLevel is never allowed above minimumLevel', () {
+      // A level that is neither emitted nor buffered would just vanish.
+      final sink = MemorySink();
+      final logger = Logger.forTesting(
+        sink: sink,
+        minimumLevel: LogLevel.debug,
+        breadcrumbLevel: LogLevel.error,
+      );
+
+      runWithScope(logger.startTrace(), () {
+        logger.debug('emitted, so it must also be a breadcrumb');
+        try {
+          throw StateError('boom');
+        } catch (e, st) {
+          logger.error(e, st);
+        }
+      });
+
+      expect(sink.events.last.chain, hasLength(1));
+    });
+
+    test('causalChainLength: 0 skips buffering entirely', () {
+      final sink = MemorySink();
+      final logger = Logger.forTesting(sink: sink, minimumLevel: LogLevel.info);
+      final noChain = Logger.create(
+        sink: sink,
+        minimumLevel: LogLevel.info,
+        causalChainLength: 0,
+        redactor: Redactor.disabled(),
+      );
+      expect(logger.isRecorded(LogLevel.trace), isTrue);
+      expect(noChain.isRecorded(LogLevel.trace), isFalse,
+          reason: 'with chains off there is no reason to keep breadcrumbs');
+    });
+
+    test('sequence numbers have no gaps despite buffered-only events', () {
+      // Gaps would read like dropped lines to anyone reading the file.
+      final sink = MemorySink();
+      final logger = Logger.forTesting(sink: sink, minimumLevel: LogLevel.info);
+
+      logger.debug('breadcrumb');
+      logger.info('first');
+      logger.trace('breadcrumb');
+      logger.info('second');
+      logger.info('third');
+
+      expect(sink.events.map((e) => e.sequence), [1, 2, 3]);
+    });
+
+    test('isEnabled and isRecorded distinguish emitted from buffered', () {
+      final logger = Logger.forTesting(minimumLevel: LogLevel.info);
+
+      expect(logger.isEnabled(LogLevel.debug), isFalse);
+      expect(logger.isEnabled(LogLevel.info), isTrue);
+      expect(logger.isRecorded(LogLevel.debug), isTrue,
+          reason: 'still kept as a breadcrumb');
+      expect(logger.minimumLevel, LogLevel.info);
+    });
+
+    test('baseContext is attached to every event without a scope', () {
+      // Unlike a trace scope this needs no runWithScope, so it also covers
+      // timers, isolates and anything logged before a zone is entered.
+      final sink = MemorySink();
+      final logger = Logger.create(
+        sink: sink,
+        redactor: Redactor.disabled(),
+        baseContext: {'appVersion': '1.4.2', 'env': 'prod'},
+      );
+
+      logger.info('outside any scope');
+      logger.child('db').info('from a child logger');
+
+      for (final event in sink.events) {
+        expect(event.context['appVersion'], '1.4.2');
+        expect(event.context['env'], 'prod');
+      }
+    });
+
+    test('scope and call-site fields win over baseContext', () {
+      final sink = MemorySink();
+      final logger = Logger.create(
+        sink: sink,
+        redactor: Redactor.disabled(),
+        baseContext: {'env': 'prod', 'tier': 'base'},
+      );
+
+      runWithScope(logger.startTrace(context: {'tier': 'scope'}), () {
+        logger.info('a');
+        logger.info('b', context: {'tier': 'call-site'});
+      });
+
+      expect(sink.events[0].context['tier'], 'scope');
+      expect(sink.events[1].context['tier'], 'call-site');
+      expect(sink.events[1].context['env'], 'prod');
+    });
+
+    test('includePlatformContext records the environment once per event', () {
+      final sink = MemorySink();
+      final logger = Logger.create(
+        sink: sink,
+        redactor: Redactor.disabled(),
+        includePlatformContext: true,
+      );
+
+      logger.info('hello');
+
+      // "Reproduces only on Linux with Dart 3.9" is a conclusion an analyst
+      // can only reach if the log says which platform produced it.
+      expect(sink.events.single.context['os'], isNotNull);
+      expect(sink.events.single.context['dart'], isNotNull);
+    });
+
+    test('an injected clock makes output deterministic', () {
+      final sink = MemorySink();
+      var tick = DateTime.utc(2026, 1, 1);
+      final logger = Logger.forTesting(
+        sink: sink,
+        clock: () => tick,
+        idGenerator: IdGenerator(random: Random(1)),
+      );
+
+      logger.info('first');
+      tick = tick.add(const Duration(seconds: 5));
+      logger.info('second');
+
+      expect(sink.events[0].time, DateTime.utc(2026, 1, 1));
+      expect(sink.events[1].time, DateTime.utc(2026, 1, 1, 0, 0, 5));
+    });
+
+    test('an injected IdGenerator makes trace ids reproducible', () {
+      Logger build() => Logger.forTesting(
+            sink: MemorySink(),
+            idGenerator: IdGenerator(random: Random(42)),
+          );
+
+      expect(build().startTrace().traceId, build().startTrace().traceId);
     });
 
     test('logError() sanitizes a nested cause as well', () {

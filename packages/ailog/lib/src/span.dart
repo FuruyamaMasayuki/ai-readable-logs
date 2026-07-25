@@ -17,7 +17,7 @@ import 'log_level.dart';
 /// [Logger.spanAsync], which do this automatically).
 class Span {
   Span.fromLogger(this._logger, this._scope, this.name)
-      : _startedAt = DateTime.now();
+      : _startedAt = _logger.now();
 
   final Logger _logger;
   final LogScope _scope;
@@ -31,7 +31,7 @@ class Span {
   String? get traceId => _scope.traceId;
   String? get spanId => _scope.spanId;
 
-  int get elapsedMs => DateTime.now().difference(_startedAt).inMilliseconds;
+  int get elapsedMs => _logger.now().difference(_startedAt).inMilliseconds;
 
   /// Marks the span as successfully completed.
   void succeed({String? message, Map<String, Object?>? context}) {

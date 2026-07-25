@@ -12,20 +12,65 @@ import 'log_event.dart';
 import 'log_level.dart';
 
 /// One group of occurrences sharing an error fingerprint.
+///
+/// Tracks two different counts, because they answer different questions and
+/// conflating them actively misleads:
+///
+/// * [occurrences] — how many log events carry this fingerprint.
+/// * [incidents] — how many *distinct failures* that represents.
+///
+/// They diverge whenever one failure is logged more than once as it
+/// propagates, which is the normal result of idiomatic usage: `span()`
+/// records the failure that passed through it, and then the caller catches
+/// the same exception at a boundary and logs it again. Both are correct
+/// individually; together they double the raw count. Ranking by
+/// [occurrences] would then report a bug as twice as frequent as it is, and
+/// rank a deep-stack error above a shallower but genuinely more common one.
+///
+/// [incidents] counts distinct trace ids instead, so one request that failed
+/// once counts once no matter how many layers logged it. Untraced events
+/// can't be attributed to a request, so each is counted as its own incident
+/// — an over-count, but a safe direction, and a reason to use traces.
 class ErrorGroup {
   ErrorGroup({required this.fingerprint, required this.first});
 
   final String fingerprint;
   final LogEvent first;
-  int count = 0;
+
+  /// Raw number of log events with this fingerprint.
+  int occurrences = 0;
+
   DateTime? firstSeen;
   DateTime? lastSeen;
   LogEvent? lastEvent;
+
+  /// Distinct traces this error appeared in. Bounded by [maxRetainedTraceIds]
+  /// so a long-running file with many traces can't grow this without limit;
+  /// [incidents] stays accurate past that bound via [_untracedIncidents] and
+  /// [_distinctTraceCount].
   final Set<String> traceIds = {};
   final Set<String> loggers = {};
 
+  /// How many trace ids are kept as samples. Beyond this, only the count is
+  /// retained.
+  static const int maxRetainedTraceIds = 32;
+
+  int _distinctTraceCount = 0;
+  int _untracedIncidents = 0;
+
+  /// Number of distinct failures, de-duplicating one failure logged at
+  /// several layers of the same trace. This is what ranking uses.
+  int get incidents => _distinctTraceCount + _untracedIncidents;
+
+  /// The most recent event for this group that carries a causal chain.
+  ///
+  /// The last event is often the outermost re-log (a bare `catch` at a
+  /// boundary), which may have a thinner chain than the innermost one. Prefer
+  /// whichever actually has context to show.
+  LogEvent? chainSource;
+
   void add(LogEvent event) {
-    count++;
+    occurrences++;
     firstSeen = firstSeen == null || event.time.isBefore(firstSeen!)
         ? event.time
         : firstSeen;
@@ -35,22 +80,50 @@ class ErrorGroup {
     if (lastEvent == null || event.time.isAfter(lastEvent!.time)) {
       lastEvent = event;
     }
-    if (event.traceId != null) traceIds.add(event.traceId!);
+
+    final traceId = event.traceId;
+    if (traceId == null) {
+      _untracedIncidents++;
+    } else {
+      // Count before sampling, so the bound on retained ids doesn't distort
+      // the incident count.
+      if (!traceIds.contains(traceId)) {
+        if (traceIds.length < maxRetainedTraceIds) {
+          traceIds.add(traceId);
+          _distinctTraceCount++;
+        } else if (!_overflowedTraces.contains(traceId)) {
+          _overflowedTraces.add(traceId);
+          _distinctTraceCount++;
+        }
+      }
+    }
+
+    if (event.chain.isNotEmpty &&
+        (chainSource == null ||
+            event.chain.length > chainSource!.chain.length)) {
+      chainSource = event;
+    }
+
     loggers.add(event.logger);
   }
+
+  /// Trace ids seen past [maxRetainedTraceIds]. Held only to keep
+  /// [incidents] exact; not reported.
+  final Set<String> _overflowedTraces = {};
 
   Map<String, Object?> toJson({bool includeChain = true}) => {
         'fingerprint': fingerprint,
         'type': first.error?.type,
         'message': first.error?.message ?? first.message,
-        'count': count,
+        'incidents': incidents,
+        'occurrences': occurrences,
         'firstSeen': firstSeen?.toIso8601String(),
         'lastSeen': lastSeen?.toIso8601String(),
         'loggers': loggers.toList()..sort(),
         'sampleTraceIds': traceIds.take(5).toList(),
         'frames': first.error?.frames ?? const [],
-        if (includeChain && (lastEvent?.chain.isNotEmpty ?? false))
-          'lastChain': lastEvent!.chain,
+        if (includeChain && (chainSource?.chain.isNotEmpty ?? false))
+          'lastChain': chainSource!.chain,
       };
 }
 
@@ -68,7 +141,8 @@ class Digest {
   final int totalEvents;
   final Map<LogLevel, int> levelCounts;
 
-  /// Sorted by [ErrorGroup.count] descending.
+  /// Sorted by [ErrorGroup.incidents] descending — distinct failures, not raw
+  /// log lines. See [ErrorGroup] for why those differ.
   final List<ErrorGroup> errorGroups;
   final Set<String> loggers;
   final (DateTime?, DateTime?) timeRange;
@@ -121,15 +195,23 @@ class Digest {
       return buffer.toString();
     }
 
-    buffer.writeln('## Top errors (by occurrence count)');
+    buffer.writeln('## Top errors (by distinct failures)');
     buffer.writeln();
     var rank = 1;
     for (final group in errorGroups.take(maxGroups)) {
       buffer.writeln('### ${rank++}. `${group.first.error?.type ?? 'error'}` '
-          '(×${group.count}, fp:${group.fingerprint})');
+          '(×${group.incidents}, fp:${group.fingerprint})');
       buffer.writeln();
       buffer.writeln(
           '- Message: ${group.first.error?.message ?? group.first.message}');
+      buffer.writeln('- Distinct failures: ${group.incidents}');
+      // Surfacing both numbers matters: a gap between them means the same
+      // failure was logged at several layers, which is worth knowing before
+      // concluding anything about how often this actually happens.
+      if (group.occurrences != group.incidents) {
+        buffer.writeln('- Log events: ${group.occurrences} '
+            '(the same failure logged at multiple layers)');
+      }
       buffer.writeln('- Loggers: ${group.loggers.join(', ')}');
       buffer.writeln('- First seen: ${group.firstSeen?.toIso8601String()}');
       buffer.writeln('- Last seen: ${group.lastSeen?.toIso8601String()}');
@@ -140,9 +222,9 @@ class Digest {
           buffer.writeln('  - `$frame`');
         }
       }
-      final chain = group.lastEvent?.chain ?? const [];
+      final chain = group.chainSource?.chain ?? const [];
       if (chain.isNotEmpty) {
-        buffer.writeln('- Events leading up to the last occurrence:');
+        buffer.writeln('- Events leading up to it:');
         for (final entry in chain) {
           buffer.writeln(
               '  - `${entry['dt']}ms` [${entry['lvl']}] ${entry['msg']}');
@@ -219,8 +301,15 @@ class DigestBuilder {
   }
 
   Digest build() {
+    // Rank by distinct failures, not raw log lines: a bug logged once per
+    // request outranks one logged four times within a single request.
+    // Occurrences break ties so the ordering stays stable.
     final groups = _groups.values.toList()
-      ..sort((a, b) => b.count.compareTo(a.count));
+      ..sort((a, b) {
+        final byIncidents = b.incidents.compareTo(a.incidents);
+        if (byIncidents != 0) return byIncidents;
+        return b.occurrences.compareTo(a.occurrences);
+      });
     return Digest(
       totalEvents: _total,
       levelCounts: _levelCounts,

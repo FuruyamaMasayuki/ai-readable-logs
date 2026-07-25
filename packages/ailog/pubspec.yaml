@@ -3,7 +3,7 @@ description: >-
   Structured JSONL logging designed to be read by an AI. Trace correlation,
   causal chains embedded in error lines, error fingerprinting, automatic
   secret redaction and a digest CLI — with zero dependencies.
-version: 0.2.0
+version: 0.3.0
 repository: https://github.com/FuruyamaMasayuki/ai-readable-logs
 publish_to: none
 

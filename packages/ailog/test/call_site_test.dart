@@ -12,6 +12,15 @@ class _Service {
   void doWork() => logger.checkpoint();
 }
 
+/// Stands in for the house logging facade every large codebase grows.
+class _LogFacade {
+  _LogFacade(this.logger);
+  final Logger logger;
+
+  void markWithoutSkip() => logger.checkpoint();
+  void markWithSkip() => logger.checkpoint(skipFrames: 1);
+}
+
 void main() {
   group('captureCallSite', () {
     test('resolves a frame outside ailog', () {
@@ -35,6 +44,64 @@ void main() {
         stackTrace: StackTrace.fromString('not a stack trace at all'),
       );
       expect(site, isNull);
+    });
+
+    test('returns null for a non-symbolic AOT trace', () {
+      // What `--obfuscate --split-debug-info` actually produces. No frame
+      // here names a location, so there is nothing honest to report.
+      final site = captureCallSite(
+        stackTrace: StackTrace.fromString(
+          'Warning: This VM has been configured to produce stack traces '
+          'that violate the Dart standard.\n'
+          '*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***\n'
+          'pid: 1234, tid: 5678, name Dart_Initialize\n'
+          'isolate_dso_base: 7f0a, vm_dso_base: 7f0a\n'
+          '    #00 abs 0000561a3f51de5f '
+          '_kDartIsolateSnapshotInstructions+0x51de5f\n'
+          '    #01 abs 0000561a3f4a1b23 '
+          '_kDartIsolateSnapshotInstructions+0x4a1b23\n',
+        ),
+      );
+      expect(site, isNull);
+    });
+
+    test('returns null for a browser trace format Dart cannot map back', () {
+      // Firefox/Safari emit `member@url:line:col` with no parentheses.
+      final site = captureCallSite(
+        stackTrace: StackTrace.fromString(
+          'charge@http://localhost:8080/main.dart.js:9911:7\n'
+          'onTap@http://localhost:8080/main.dart.js:4211:19\n',
+        ),
+      );
+      expect(site, isNull);
+    });
+
+    test('does not report the dart2js runtime as the caller', () {
+      // Under dart2js without source maps every frame points at the bundle,
+      // including ailog's own plumbing and the compiler runtime. Naming one
+      // of those as the call site is worse than reporting nothing, because
+      // it looks correct.
+      final site = captureCallSite(
+        stackTrace: StackTrace.fromString(
+          '    at Object.wrapException '
+          '(http://localhost:8080/main.dart.js:4211:19)\n'
+          '    at Logger._emit (http://localhost:8080/main.dart.js:9911:7)\n'
+          '    at StackTrace_current '
+          '(http://localhost:8080/main.dart.js:1002:3)\n',
+        ),
+      );
+      expect(site, isNull);
+    });
+
+    test('still resolves a source-mapped web frame', () {
+      final site = captureCallSite(
+        stackTrace: StackTrace.fromString(
+          '    at CartService.charge '
+          '(http://localhost:8080/packages/my_app/cart.dart:42:5)\n',
+        ),
+      );
+      expect(site, isNotNull);
+      expect(site!.member, 'CartService.charge');
     });
 
     test('skipFrames walks further down the stack', () {
@@ -127,16 +194,35 @@ void main() {
       expect(sink.events, isEmpty);
     });
 
-    test('a null message on a leveled method behaves as a checkpoint', () {
+    test('checkpoint() at a raised level behaves like the leveled methods', () {
       final sink = MemorySink();
       final logger = Logger.forTesting(sink: sink);
 
-      logger.info(null);
+      logger.checkpoint(level: LogLevel.info);
 
       final event = sink.events.single;
       expect(event.level, LogLevel.info);
       expect(event.message, startsWith('→ '));
       expect(event.tags, contains('checkpoint'));
+    });
+
+    test('skipFrames reports the wrapper\'s caller, not the wrapper', () {
+      // Every large codebase wraps its logger in a house facade. Without
+      // skipFrames, every checkpoint in the app would resolve to the same
+      // line inside that facade.
+      final sink = MemorySink();
+      final logger = Logger.forTesting(sink: sink);
+      final facade = _LogFacade(logger);
+
+      facade.markWithoutSkip();
+      facade.markWithSkip();
+
+      final withoutSkip = sink.events[0].message;
+      final withSkip = sink.events[1].message;
+
+      expect(withoutSkip, contains('_LogFacade.markWithoutSkip'));
+      expect(withSkip, isNot(contains('_LogFacade')),
+          reason: 'skipFrames should step past the facade to its caller');
     });
 
     test('an explicit message is never replaced by the call site', () {
@@ -148,6 +234,13 @@ void main() {
       final event = sink.events.single;
       expect(event.message, 'a real message');
       expect(event.tags, isNot(contains('checkpoint')));
+    });
+
+    test('checkpointsResolveCallSites reports whether the build supports it',
+        () {
+      // True under the JIT the tests run on; an app can check this at startup
+      // rather than discovering blank checkpoints during an incident.
+      expect(Logger.checkpointsResolveCallSites(), isTrue);
     });
 
     test('checkpoints participate in the causal chain like any event', () {

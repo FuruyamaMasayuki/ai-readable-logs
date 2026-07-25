@@ -1,3 +1,31 @@
+## 0.3.0
+
+### Fixed
+
+- **The digest over-counted errors, corrupting its own ranking.** Idiomatic
+  usage logs one failure more than once as it propagates — `span()` records
+  the failure passing through it, then the caller catches the same exception
+  at a boundary and logs it again. Both are correct; together they doubled
+  the reported frequency, and could rank a deep-stack error above a
+  shallower but genuinely more widespread one. Verified on a realistic
+  session: two failed requests were reported as `×4`.
+
+  `ErrorGroup` now tracks `incidents` (distinct traces) alongside
+  `occurrences` (raw log events), ranks by the former, and reports both when
+  they diverge. Untraced events count individually, since they can't be
+  attributed to a request.
+
+### Changed
+
+- `ErrorGroup.count` renamed to `ErrorGroup.occurrences`; `incidents` added.
+  The digest's JSON output gains `incidents` and renames `count` to
+  `occurrences`.
+- The digest picks the richest available causal chain for a group rather
+  than the chronologically last one — the last event is often the outermost
+  re-log, which carries less context than the innermost.
+- Retained sample trace IDs per error group are bounded (32); the incident
+  count stays exact past that bound.
+
 ## 0.2.0
 
 ### Added

@@ -138,9 +138,36 @@ single trace crosses several subsystems.
 dart run ailog:ailog_digest .ailog/app.jsonl
 ```
 
-Ranks errors by occurrence count and prints, per group, the representative
-frames and the causal chain of the most recent occurrence. Output size is
-bounded with `--max-groups`.
+Ranks errors and prints, per group, the representative frames and the causal
+chain. Output size is bounded with `--max-groups`.
+
+### Distinct failures vs. log events
+
+Ranking is by **distinct failures**, not raw log lines — those differ more
+often than you'd expect, and conflating them misleads:
+
+```dart
+await logger.span('charge', (s) => gateway.charge());  // logs the failure
+// ...caller catches the same exception at the boundary
+catch (e, st) { logger.error(e, st); }                 // logs it again
+```
+
+Both calls are correct in isolation. Together, one failed request produces
+two error lines. Counting raw lines would report the bug as twice as
+frequent as it is, and rank a deep-stack error above a shallower but
+genuinely more widespread one.
+
+The digest groups by trace instead, so one request that failed once counts
+once, and reports both numbers when they diverge:
+
+```text
+### 1. `StateError` (×2, fp:386b7f5a)
+- Distinct failures: 2
+- Log events: 4 (the same failure logged at multiple layers)
+```
+
+Untraced events can't be attributed to a request, so each counts as its own
+failure — an over-count, and a reason to wrap work in a trace.
 
 ```sh
 dart run ailog:ailog_digest .ailog/app.jsonl --format json --max-groups 10 -o digest.json
