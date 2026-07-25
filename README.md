@@ -64,24 +64,53 @@ the digest then found the same root cause, naming the branch at fault, from
 import 'package:ailog/ailog.dart';
 
 Future<void> main() async {
+  // One logger per process. MultiSink fans each event out to every sink in
+  // the list — nothing here is exclusive to one destination.
   final logger = Logger.create(
     sink: MultiSink([
-      JsonlFileSink(path: '.ailog/app.jsonl'),          // for the AI
-      LevelFilterSink(ConsoleSink(), LogLevel.info),    // for you
+      JsonlFileSink(path: '.ailog/app.jsonl'),          // the file an AI reads
+      LevelFilterSink(ConsoleSink(), LogLevel.info),    // what you watch live;
+      // LevelFilterSink keeps the terminal to info-and-up without making the
+      // file lossy — the two sinks don't have to agree on what to keep.
     ]),
   );
 
+  // A trace = one logical operation (here: handling one checkout). Anything
+  // logged inside runWithScope's callback — including after an `await`, or
+  // from a callback fired later — automatically carries this trace's id and
+  // any context passed to startTrace. No id parameter to thread by hand.
   final scope = logger.startTrace(context: {'requestId': 'req-1'});
   await runWithScope(scope, () async {
+    // A normal log call: level, message, and free-form structured context.
+    // The email is masked automatically before it ever reaches the sink —
+    // see "Redaction" below.
     logger.info('checkout started', context: {'userEmail': 'a@example.com'});
 
+    // A span times one step and auto-closes on return or throw. On success
+    // its duration is recorded; on failure the thrown error, its duration,
+    // and the causal chain (the events that happened just before it, in this
+    // same trace — including the 'checkout started' line above) are all
+    // attached to the error line, and the exception still propagates
+    // normally to whatever catches it outside this block.
     await logger.span('charge_card', (span) async {
       await chargeCard();   // throws → error, duration and causal chain logged
     });
   });
 
+  // Pushes any buffered lines to disk. Call this before reading the file
+  // back, before the process exits, or before sharing/uploading it.
   await logger.flush();
 }
+```
+
+Plain `print()` calls are captured too, so code you haven't migrated (or a
+third-party package's own prints) still ends up in the file:
+
+```dart
+capturePrints(logger, () {
+  print('a legacy debugging line');   // → console AND app.jsonl, with the trace attached
+  runApplication();
+});
 ```
 
 Then hand the result to an AI:

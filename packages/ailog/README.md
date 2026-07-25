@@ -72,27 +72,46 @@ dependencies:
 import 'package:ailog/ailog.dart';
 
 Future<void> main() async {
+  // Create one Logger per process. MultiSink fans each event out to every
+  // sink given to it — the two below don't have to agree on what to keep.
   final logger = Logger.create(
     sink: MultiSink([
-      JsonlFileSink(path: '.ailog/app.jsonl'),
-      LevelFilterSink(ConsoleSink(), LogLevel.info),  // human-readable in dev
+      JsonlFileSink(path: '.ailog/app.jsonl'),          // everything, for the AI
+      LevelFilterSink(ConsoleSink(), LogLevel.info),    // info+, human-readable in dev
     ]),
   );
 
+  // startTrace begins one logical operation (here: one checkout) and
+  // returns a LogScope carrying its trace id plus whatever context you pass.
+  // runWithScope installs it for the duration of the callback: every log
+  // call inside — including after an `await`, or from a callback that fires
+  // later — automatically inherits the trace id and context. Nothing here
+  // threads a request id through function signatures by hand.
   final scope = logger.startTrace(context: {'requestId': 'req-1'});
   await runWithScope(scope, () async {
+    // Level, message, structured context. The email is redacted before it
+    // reaches any sink — see "Redaction" further down.
     logger.info('checkout started', context: {'userEmail': 'a@example.com'});
 
+    // span() times one step and closes it automatically on return or throw.
     await logger.span('charge_card', (span) async {
-      // On failure: the error, its duration and the causal chain are all
-      // recorded automatically, and the exception still propagates.
+      // On failure: the error, its duration, a stable fingerprint, and the
+      // causal chain (the events that happened just before it in this same
+      // trace — including 'checkout started' above) are all recorded
+      // automatically, and the exception still propagates to whatever
+      // catches it outside this block.
       await chargeCard();
     });
   });
 
+  // Pushes buffered lines to disk. Call this before reading the file back,
+  // before the process exits, or before handing it off to be shared.
   await logger.flush();
 }
 ```
+
+Ordinary `print()` calls can be captured into the same file — see
+["Capturing plain `print()` calls"](#capturing-plain-print-calls) below.
 
 One emitted line, formatted for readability:
 
