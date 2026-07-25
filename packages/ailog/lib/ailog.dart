@@ -9,7 +9,8 @@ export 'src/causal_buffer.dart' show CausalBuffer;
 export 'src/console_formatter.dart' show ConsoleFormatter;
 export 'src/context.dart'
     show LogScope, currentScope, runWithScope, runWithScopeGuarded;
-export 'src/ids.dart' show IdGenerator, fnv1a64, shortHash;
+export 'src/digest.dart' show Digest, DigestBuilder, ErrorGroup;
+export 'src/ids.dart' show IdGenerator, SequenceCounter, fnv1a64, shortHash;
 export 'src/log_event.dart'
     show LogEvent, ErrorInfo, aiLogSchemaVersion, schemaLegend;
 export 'src/log_level.dart' show LogLevel;

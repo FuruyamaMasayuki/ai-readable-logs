@@ -1,0 +1,21 @@
+name: ailog_flutter_example
+description: ailog_flutterの最小限の使用例。
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.22.0"
+
+dependencies:
+  ailog_flutter:
+    path: ../
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^4.0.0
+
+flutter:

@@ -105,7 +105,10 @@ class JsonlFileSink implements LogSink {
     if (sink != null) unawaited(sink.close().catchError((_) {}));
 
     try {
-      for (var i = maxFiles - 1; i >= 1; i--) {
+      // Walks from the oldest slot to the newest so each rename target is
+      // vacated before it is written to. i == maxFiles is the oldest kept
+      // rotation and is dropped (overwritten) once a new one takes its place.
+      for (var i = maxFiles; i >= 1; i--) {
         final source = File(i == 1 ? _path : '$_path.${i - 1}');
         if (!source.existsSync()) continue;
         source.renameSync('$_path.$i');

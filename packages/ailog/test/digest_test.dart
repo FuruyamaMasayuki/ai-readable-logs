@@ -1,4 +1,4 @@
-import 'package:ailog/src/digest.dart';
+import 'package:ailog/ailog.dart';
 import 'package:test/test.dart';
 
 void main() {

@@ -98,6 +98,13 @@ final httpLogger = logger.child('http');
 `child` で作った全ロガーは、同じセッション・シーケンス番号・因果バッファを
 共有する。トレース内で複数のサブシステムをまたいでも順序と相関が保たれる。
 
+## サンプル
+
+- [`example/main.dart`](example/main.dart) — 最小構成のクイックスタート
+- [`example/advanced_example.dart`](example/advanced_example.dart) — 子ロガー、
+  開発/本番でのシンク使い分け、カスタムマスキングルール、`DigestBuilder` を
+  CLIを介さず直接使う例
+
 ## AI向けダイジェスト
 
 ```sh

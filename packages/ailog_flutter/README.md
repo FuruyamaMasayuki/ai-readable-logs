@@ -55,6 +55,13 @@ push/pop/remove/replace が `info` イベントとしてJSONLに残るため、
 いずれも既存のハンドラを **置き換えずchain** する。`install` は
 プロセス内で最初の1回のみ有効（多重登録による二重ログを防ぐため）。
 
+## サンプル
+
+[`example/`](example) に実際に `flutter run` できる最小アプリがある。
+4つのボタンで4つの自動記録経路（画面遷移・捕捉済みエラー・Widgetビルド
+エラー・非同期の未捕捉エラー）をそれぞれ発火できる。詳細は
+[`example/README.md`](example/README.md) を参照。
+
 ## 注意
 
 - `ailog_flutter` は `ailog` を再エクスポートしているので、両方を
