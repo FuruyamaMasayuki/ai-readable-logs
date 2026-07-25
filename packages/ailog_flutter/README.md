@@ -216,6 +216,121 @@ implementation with real reference values in
 > than build-verified. Confirm it compiles and behaves on a real device or
 > simulator before shipping.
 
+## Sharing logs with a "send logs" button
+
+[`log_vault`](https://pub.dev/packages/log_vault) is a separate package (by
+the same author) that owns the "zip and open the platform share sheet" flow
+— worth reusing rather than reimplementing. This isn't a separate `ailog`
+package; it's about 30 lines you copy in, because that's genuinely all it
+is: two small functions gluing two libraries together, not enough to justify
+its own pubspec/CHANGELOG/CI job. (An earlier revision shipped this as
+`ailog_vault`; it added three moving parts for what turned out to be small
+enough to just paste.)
+
+```yaml
+# pubspec.yaml
+dependencies:
+  log_vault: ^0.1.0
+```
+
+```dart
+// lib/log_share.dart
+//
+// Regenerates a digest from ailog's JSONL files and hands both to
+// log_vault's share sheet. Copy this in and adjust paths/names as needed.
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:ailog/ailog.dart';
+import 'package:flutter/widgets.dart';
+import 'package:log_vault/log_vault.dart';
+import 'package:path/path.dart' as p;
+import 'package:share_plus/share_plus.dart';
+
+final RegExp _jsonlPattern = RegExp(r'\.jsonl(\.\d+)?$');
+
+/// Reads every `.jsonl` file in [ailogDir] (oldest rotation first), builds
+/// a digest, and writes it to `digest.md` beside them. Call this right
+/// before sharing so it always describes the current files — it is
+/// typically the only thing whoever receives the zip needs to open.
+Future<Digest> writeAilogDigest(Directory ailogDir) async {
+  final builder = DigestBuilder();
+  if (await ailogDir.exists()) {
+    final files = await ailogDir
+        .list()
+        .where((e) => e is File && _jsonlPattern.hasMatch(p.basename(e.path)))
+        .cast<File>()
+        .toList();
+    files.sort((a, b) => _rotationRank(b.path) - _rotationRank(a.path));
+    for (final file in files) {
+      for (final line in const LineSplitter().convert(await file.readAsString())) {
+        builder.addLine(line);
+      }
+    }
+  }
+  final digest = builder.build();
+  await File(p.join(ailogDir.path, 'digest.md'))
+      .writeAsString(digest.toMarkdown());
+  return digest;
+}
+
+/// `app.jsonl` → 0, `app.jsonl.3` → 3. Sorting oldest-first by this (not by
+/// the path string) matters once there are 10+ rotations — ".10" sorts
+/// before ".2" as a string, but not as a number.
+int _rotationRank(String path) {
+  final match = RegExp(r'\.jsonl\.(\d+)$').firstMatch(path);
+  return match == null ? 0 : int.parse(match.group(1)!);
+}
+
+/// Regenerates the digest, then shares log_vault's own zip (its
+/// `log_YYYYMMDD.log` files) together with ailog's JSONL and the digest as
+/// extra attachments in the same share sheet.
+Future<void> shareLogs(
+  BuildContext context, {
+  required LogDumper dumper,
+  required Directory ailogDir,
+  String subject = 'App logs',
+}) async {
+  await writeAilogDigest(ailogDir);
+  final jsonlFiles = await ailogDir
+      .list()
+      .where((e) => e is File && _jsonlPattern.hasMatch(p.basename(e.path)))
+      .cast<File>()
+      .toList();
+
+  await ShareLogDumper(dumper).share(
+    context,
+    subject: subject,
+    extraFiles: [
+      ...jsonlFiles.map((f) => XFile(f.path)),
+      XFile(p.join(ailogDir.path, 'digest.md')),
+    ],
+  );
+}
+```
+
+```dart
+// Wiring it up: one LogDumper, reused across calls (it deletes the
+// previous zip before building the next one — see log_vault's docs).
+final dumper = LogDumper(
+  directory: Directory('${(await getApplicationSupportDirectory()).path}/logs'),
+  appName: 'my_app',
+);
+
+// In a "send logs" button:
+onPressed: () => shareLogs(
+  context,
+  dumper: dumper,
+  ailogDir: Directory('${(await getApplicationSupportDirectory()).path}/ailog'),
+),
+```
+
+Attachments this way ride alongside log_vault's zip rather than inside it —
+the share sheet shows both, which is a fine outcome and needs nothing beyond
+what's on pub.dev today. If you'd rather have one zip containing everything,
+`LogDumper` would need an `extraPatterns`-style hook to pick up `.jsonl`
+files from its own directory; that isn't in the published log_vault yet.
+
 ## Example app
 
 [`example/`](example) is a runnable app (`flutter run`, with full `android/`
