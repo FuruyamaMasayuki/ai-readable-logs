@@ -339,6 +339,26 @@ Use `Redactor.disabled()` only for local, throwaway debugging.
 Implement `LogSink` for anything else (shipping to a collector, forwarding to
 Crashlytics/Sentry, and so on).
 
+### Console output on Flutter
+
+`ConsoleSink` writes to `stdout` by default, which is right for CLIs and
+servers — but on a Flutter **device** `stdout` is not routed to logcat or the
+unified log, so those lines go nowhere you can see. Use the `print`-based
+form there:
+
+```dart
+ConsoleSink.usingPrint()                    // print()
+ConsoleSink(write: debugPrint)              // Flutter's rate-limited variant
+ConsoleSink(write: (l) => developer.log(l)) // dart:developer
+```
+
+Colour is off by default for `usingPrint`, because the Flutter console,
+logcat and the Xcode console all render ANSI escapes as literal characters.
+
+Combining this with `capturePrints` is safe: the capture guard passes the
+logging pipeline's own prints straight through instead of logging them
+again, so a `print`-based sink inside a captured zone cannot loop.
+
 ## Examples
 
 - [`example/main.dart`](example/main.dart) — minimal quick start

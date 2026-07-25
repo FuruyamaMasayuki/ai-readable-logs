@@ -35,6 +35,11 @@
 - **`capturePrints`:** route ordinary `print()` calls into the structured
   log (tagged `print`, ambient trace attached), with a re-entrancy guard so
   a console sink cannot feed back into the log.
+- **`ConsoleSink.usingPrint()`** and `ConsoleSink(write: ...)`. The sink
+  wrote to `stdout` unconditionally, which on a Flutter device reaches
+  neither logcat nor the unified log — console output there was simply
+  invisible. A custom writer can also no longer break the caller by
+  throwing.
 - Digest honesty: breadcrumb entries are labeled as breadcrumbs, loggers
   that appear only inside causal chains are called out, and a group's
   context sample is labeled `first of N` (with the most recent shown when
