@@ -184,6 +184,92 @@ for (final line in File(path).readAsLinesSync()) {
 print(builder.build().toMarkdown(maxGroups: 5));
 ```
 
+### Aggregates: what a summary usually destroys
+
+The digest also counts **every message shape** and the **range of every
+numeric context field** across the whole log:
+
+```text
+## Event mix (all 148 events)
+
+- `http` [info] `get <path>` ×40
+- `pool` [debug] `lease acquired` ×40
+- `http` [info] `<n> ok` ×28
+- `cache` [info] `cache hit` ×19
+- `http` [error] `request failed` ×12
+- `pool` [debug] `lease released` ×9
+
+## Numeric context fields
+
+- `leased`: min=0 max=31 last=31 (n=49)
+- `max`: min=20 max=20 last=20 (n=40)
+```
+
+These two sections cost one line per distinct shape and repeatedly turn out
+to *be* the diagnosis. Above: 40 acquires against 9 releases, and a counter
+that ends at 31 against a limit of 20 — a connection-pool lease that is never
+returned on the cache-hit path.
+
+This exists because of a measured failure. The same bug was handed to two
+blind diagnosis runs, one given the raw 160-line log and one given the
+digest. The raw log won: root cause identified with high confidence, while
+the digest run concluded *"I cannot tell a leak from an ordering bug."* The
+proof of a leak is an **absence** — releases that never happen — spread
+across the requests that *succeeded*, and nothing about a successful request
+looks worth keeping. With the counts added, the digest reached the same root
+cause, naming the specific branch at fault, from 1.7 KB instead of 9.5 KB.
+
+The lesson generalises: summarisation destroys negative evidence, and
+counting restores it cheaply.
+
+## Sending logs to an AI without sending junk
+
+`LogFilter` selects what is worth the context window; everything it produces
+is a `String`.
+
+```dart
+final buffer = MemorySink(capacity: 2000);
+final logger = Logger.create(sink: MultiSink([fileSink, buffer]));
+
+// Digest + the events that survived filtering, as Markdown.
+final report = buffer.export(LogFilter.forAi).toReport();
+```
+
+| Filter | Effect |
+| --- | --- |
+| `collapseRepeats` | Folds consecutive identical lines into one with `repeated: N`. A poll loop or a rebuilding widget stops being most of the file. |
+| `aroundErrors: n` | Keeps only events within `n` of a failure — including ones from *other* traces, which is usually where the cause is. |
+| `minimumLevel`, `loggers`, `since`, `maxEvents` | The obvious ones. |
+| `onlyFailedTraces` | Keeps only traces that produced an error. Aggressive, and the one most likely to delete the answer — see above. |
+
+`LogFilter.forAi` is `collapseRepeats` + `aroundErrors: 30`.
+
+Two things are deliberate. **Aggregates are computed over the unfiltered
+input**, so the acquire/release counts stay true even after the successful
+requests are gone. And **the output says what was removed**, in both formats,
+so a filtered log never reads as a complete one:
+
+```text
+_Filtered: 73 of 80 events were removed before listing (farFromError=73).
+The counts above cover all 80._
+```
+
+## Getting the log as a string
+
+No file required — this works identically on web.
+
+```dart
+buffer.toJsonl();                       // same wire format as the file sink
+buffer.toMarkdown();                    // digest only
+buffer.export(LogFilter.forAi).toReport();  // digest + surviving events
+
+digestFromJsonl(text);                  // parse a log you already have
+buildDigest(events);                    // aggregate in-memory events
+```
+
+`toJsonl()` emits the schema legend as its first line, so the string is
+self-describing to a recipient that has never seen the format.
+
 ## Redaction
 
 Enabled by default: emails, JWTs, bearer tokens, basic-auth URLs,

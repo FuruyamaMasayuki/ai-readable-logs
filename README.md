@@ -36,6 +36,19 @@ package removes that step structurally.
 | **Digest CLI** | `ailog_digest` reduces hundreds of thousands of lines to a ranked summary | Fits in a context window |
 | **Automatic redaction** | Emails, tokens, card numbers masked as `[redacted:kind#hash]` | Safe to paste into a chat; equal hashes still reveal "same user across these lines" |
 | **Checkpoints** | `logger.checkpoint()` logs *where* it was called, with no message | Proves a code path ran without polluting logs with `"here"` strings |
+| **Whole-log aggregates** | Every message shape counted, every numeric context field's range | `40 lease acquired` against `9 lease released` is a diagnosis one summary line long |
+| **Filtered string output** | `LogFilter` + `toReport()` return text, never a file | Send the relevant slice to a model instead of 40,000 healthy lines |
+
+### This is measured, not asserted
+
+The digest was tested by handing the same connection-pool leak to two blind
+diagnosis runs — one with the raw log, one with the digest — and comparing.
+The raw log won the first round outright, because summarising had destroyed
+the evidence: the proof of a leak is the releases that *never happen*, spread
+across the requests that succeeded. Adding whole-log counts closed the gap;
+the digest then found the same root cause, naming the branch at fault, from
+1.7 KB instead of 9.5 KB. Details in
+[`packages/ailog/README.md`](packages/ailog/README.md#aggregates-what-a-summary-usually-destroys).
 
 ## Packages
 

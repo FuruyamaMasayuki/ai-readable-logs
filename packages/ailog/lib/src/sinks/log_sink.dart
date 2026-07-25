@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../export.dart';
 import '../log_event.dart';
 import '../log_level.dart';
 
@@ -66,12 +67,39 @@ class MultiSink implements LogSink {
   }
 }
 
-/// Keeps events in memory. Intended for tests and for in-app log viewers.
+/// Keeps events in memory, and hands them back as text.
+///
+/// This is the sink to attach when the log needs to become a [String] — a
+/// "copy diagnostics" button, an attachment on a crash report, or the last
+/// minute of activity pasted into a chat with an assistant. Nothing here
+/// touches the filesystem, so it works identically on web.
+///
+/// ```dart
+/// final buffer = MemorySink(capacity: 2000);
+/// final logger = Logger.create(sink: MultiSink([fileSink, buffer]));
+/// ...
+/// final text = buffer.export(LogFilter.forAi).toReport();
+/// ```
 class MemorySink implements LogSink {
   MemorySink({this.capacity = 1000});
 
+  /// Most recent events retained. Older ones are discarded, so a long-running
+  /// app has a bounded, rolling window rather than a leak.
   final int capacity;
   final List<LogEvent> events = [];
+
+  /// Applies [filter] and returns the survivors together with whole-log
+  /// aggregates and a record of what was removed.
+  LogSelection export([LogFilter filter = LogFilter.none]) =>
+      filter.apply(events);
+
+  /// Everything currently held, as JSONL text.
+  String toJsonl({bool includeHeader = true}) =>
+      export().toJsonl(includeHeader: includeHeader);
+
+  /// Everything currently held, as a Markdown digest.
+  String toMarkdown({int maxGroups = 20}) =>
+      export().toMarkdown(maxGroups: maxGroups);
 
   @override
   void add(LogEvent event) {

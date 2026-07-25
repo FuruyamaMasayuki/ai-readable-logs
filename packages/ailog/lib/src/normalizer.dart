@@ -43,9 +43,19 @@ class StackFrame {
 }
 
 /// Frames that carry no information about *where* a bug is.
+///
+/// `package:ailog` is in here for the same reason the others are: the logger
+/// is never the bug. A blind diagnosis run on a digest whose top frames read
+/// `runWithScope`, `_rootRun`, `_CustomZone.run` reported that the stack
+/// "does not identify the leasing code" — the five-frame budget had been
+/// spent entirely on this package's own zone plumbing. Demoting these frames
+/// keeps them available as filler while letting real application frames take
+/// the slots that matter, and keeps them out of the fingerprint, where they
+/// would make unrelated bugs logged through the same helper look alike.
 final RegExp _noiseFrame = RegExp(
   r'^(dart:async|dart:async-patch|dart:isolate|dart:isolate-patch|'
-  r'package:stack_trace|package:test_api|package:test_core|package:matcher)',
+  r'package:stack_trace|package:test_api|package:test_core|package:matcher|'
+  r'package:ailog/|package:ailog_flutter/)',
 );
 
 final RegExp _dartFrame = RegExp(
