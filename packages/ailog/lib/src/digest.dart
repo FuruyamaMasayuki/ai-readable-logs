@@ -141,6 +141,10 @@ class ErrorGroup {
       };
 }
 
+/// Renders a context map as compact `key=value` pairs.
+String _renderContext(Map<String, Object?> context) =>
+    context.entries.map((e) => '${e.key}=${e.value}').join(' ');
+
 /// Aggregated view of one log file (or a time-bounded slice of it).
 class Digest {
   Digest({
@@ -231,6 +235,13 @@ class Digest {
       buffer.writeln('- Loggers: ${group.loggers.join(', ')}');
       buffer.writeln('- First seen: ${group.firstSeen?.toIso8601String()}');
       buffer.writeln('- Last seen: ${group.lastSeen?.toIso8601String()}');
+      // The failing event's own context is often the direct evidence — the
+      // order id, the endpoint, the retry count. Dropping it forces whoever
+      // reads the digest back to the raw file for the one thing they needed.
+      final failingContext = group.first.context;
+      if (failingContext.isNotEmpty) {
+        buffer.writeln('- Context: ${_renderContext(failingContext)}');
+      }
       final frames = group.first.error?.frames ?? const [];
       if (frames.isNotEmpty) {
         buffer.writeln('- Top frames:');
@@ -242,8 +253,15 @@ class Digest {
       if (chain.isNotEmpty) {
         buffer.writeln('- Events leading up to it:');
         for (final entry in chain) {
+          // Include each breadcrumb's context. It is routinely the decisive
+          // detail — `leased=20 max=20` two lines before a timeout names the
+          // cause outright, and rendering only the message throws that away.
+          final crumbContext = entry['ctx'];
+          final rendered = crumbContext is Map && crumbContext.isNotEmpty
+              ? ' ${_renderContext(crumbContext.cast<String, Object?>())}'
+              : '';
           buffer.writeln(
-              '  - `${entry['dt']}ms` [${entry['lvl']}] ${entry['msg']}');
+              '  - `${entry['dt']}ms` [${entry['lvl']}] ${entry['msg']}$rendered');
         }
       }
       buffer.writeln();

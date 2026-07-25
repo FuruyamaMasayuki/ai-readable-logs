@@ -286,6 +286,145 @@ void main() {
       await sink.close();
     });
 
+    test('repeated error-level events do not lose the file', () async {
+      // Regression, and a bad one: flush-on-error used `unawaited(flush())`,
+      // and `IOSink.flush()` must not overlap another flush. Two errors close
+      // together put the sink in a bad state and *every* line was lost —
+      // silently, because both the unawaited call and this class's own error
+      // handling swallow failures. The original test only wrote one error,
+      // so it never overlapped.
+      final path = '${tempDir.path}/app.jsonl';
+      final sink = JsonlFileSink(
+        path: path,
+        flushInterval: Duration.zero,
+        writeSchemaHeader: false,
+      );
+
+      for (var i = 0; i < 50; i++) {
+        sink.add(
+          i % 10 == 0
+              ? LogEvent(
+                  time: DateTime.utc(2026),
+                  level: LogLevel.error,
+                  message: 'error at $i',
+                  logger: 'app',
+                  sessionId: 's',
+                  sequence: i,
+                )
+              : _event('event $i', seq: i),
+        );
+      }
+      await sink.flush();
+      await sink.close();
+
+      expect(File(path).readAsLinesSync(), hasLength(50));
+    });
+
+    test('loses nothing when writes are separated by async gaps', () async {
+      // The regression that motivated dropping IOSink entirely. With
+      // flush-on-error and an `await` between rounds — what every request
+      // handler looks like — 9 of 15 events were silently lost, and only
+      // *some* were: the file looked plausible, just truncated. Synchronous
+      // writes make the loss impossible rather than unlikely.
+      final path = '${tempDir.path}/app.jsonl';
+      final sink = JsonlFileSink(
+        path: path,
+        flushInterval: Duration.zero,
+        writeSchemaHeader: false,
+      );
+
+      for (var round = 0; round < 5; round++) {
+        sink.add(_event('before $round'));
+        sink.add(LogEvent(
+          time: DateTime.utc(2026),
+          level: LogLevel.error,
+          message: 'error $round',
+          logger: 'app',
+          sessionId: 's',
+          sequence: round,
+        ));
+        sink.add(_event('after $round'));
+        await Future<void>.delayed(Duration.zero);
+      }
+      await sink.flush();
+      await sink.close();
+
+      expect(File(path).readAsLinesSync(), hasLength(15));
+    });
+
+    test('an error is on disk before the next event-loop turn', () async {
+      // The periodic timer cannot run while the isolate is blocked, which
+      // describes the crashes the log exists for. An error must not depend
+      // on it.
+      final path = '${tempDir.path}/app.jsonl';
+      final sink = JsonlFileSink(
+        path: path,
+        flushInterval: Duration.zero,
+        writeSchemaHeader: false,
+      );
+
+      sink.add(_event('buffered info'));
+      sink.add(LogEvent(
+        time: DateTime.utc(2026),
+        level: LogLevel.error,
+        message: 'the thing that killed us',
+        logger: 'app',
+        sessionId: 's',
+        sequence: 2,
+      ));
+
+      // Read synchronously, without yielding to the event loop at all.
+      expect(
+          File(path).readAsStringSync(), contains('the thing that killed us'));
+      await sink.close();
+    });
+
+    test('buffered writes reach disk once the buffer fills', () async {
+      final path = '${tempDir.path}/app.jsonl';
+      final sink = JsonlFileSink(
+        path: path,
+        flushInterval: Duration.zero,
+        writeSchemaHeader: false,
+        bufferBytes: 200,
+      );
+
+      for (var i = 0; i < 50; i++) {
+        sink.add(_event('event $i', seq: i));
+      }
+      // No flush() yet: the buffer threshold alone should have written most
+      // of these out.
+      expect(File(path).readAsLinesSync().length, greaterThan(30));
+
+      await sink.close();
+      expect(File(path).readAsLinesSync(), hasLength(50));
+    });
+
+    test('interleaved explicit and eager flushes all complete', () async {
+      final path = '${tempDir.path}/app.jsonl';
+      final sink = JsonlFileSink(
+        path: path,
+        flushInterval: Duration.zero,
+        writeSchemaHeader: false,
+      );
+
+      final pending = <Future<void>>[];
+      for (var i = 0; i < 20; i++) {
+        sink.add(LogEvent(
+          time: DateTime.utc(2026),
+          level: LogLevel.error,
+          message: 'e$i',
+          logger: 'app',
+          sessionId: 's',
+          sequence: i,
+        ));
+        pending.add(sink.flush()); // deliberately not awaited in order
+      }
+      await Future.wait(pending);
+      await sink.close();
+
+      expect(File(path).readAsLinesSync(), hasLength(20));
+    });
+
     test('path getter reflects the constructor argument', () {
       final path = '${tempDir.path}/app.jsonl';
       final sink = JsonlFileSink(path: path, flushInterval: Duration.zero);
