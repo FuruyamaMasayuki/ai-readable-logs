@@ -74,8 +74,17 @@ bool _isAilogFrame(StackFrame frame) {
 /// location with no recognizable Dart library as unusable.
 bool _isOpaqueBundleFrame(StackFrame frame) {
   final location = frame.location;
-  if (!location.contains('.dart.js')) return false;
-  // A source-mapped frame resolves back to a real .dart file; those are fine.
+  // Any JavaScript bundle, not just one named `main.dart.js`. Keying this on
+  // Flutter web's default output name was too narrow: a plain
+  // `dart compile js -o app.js`, a custom bundler name, or anything else
+  // slipped through and reported a runtime-internal frame
+  // (`→ app.js:3881 StackTrace_current`) as the user's call site — the exact
+  // confident-but-wrong answer this function exists to prevent.
+  if (!location.contains('.js')) return false;
+  // A source-mapped frame resolves back to a real Dart position (`x.dart:42`);
+  // those name real code and are fine. `main.dart.js:3881` does not — the
+  // `.dart` there is part of the bundle's filename, not a source reference,
+  // which is why this tests for `.dart:` and not merely `.dart`.
   return !location.contains('.dart:');
 }
 

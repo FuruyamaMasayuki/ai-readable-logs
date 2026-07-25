@@ -2,17 +2,49 @@ import 'package:ailog/ailog.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('fnv1a64', () {
-    test('is deterministic for the same input and seed', () {
-      expect(fnv1a64('hello'), fnv1a64('hello'));
+  group('fnv1a64Hex', () {
+    test('is deterministic for the same input', () {
+      expect(fnv1a64Hex('hello'), fnv1a64Hex('hello'));
     });
 
     test('differs for different inputs', () {
-      expect(fnv1a64('hello'), isNot(fnv1a64('world')));
+      expect(fnv1a64Hex('hello'), isNot(fnv1a64Hex('world')));
     });
 
-    test('differs for different seeds on the same input', () {
-      expect(fnv1a64('hello'), isNot(fnv1a64('hello', seed: 42)));
+    test('is always 16 lowercase hex digits', () {
+      expect(fnv1a64Hex(''), matches(RegExp(r'^[0-9a-f]{16}$')));
+      expect(fnv1a64Hex('x' * 1000), matches(RegExp(r'^[0-9a-f]{16}$')));
+    });
+
+    test('matches the published FNV-1a 64 vectors', () {
+      // These are the canonical values, not values captured from this
+      // implementation — so they catch the algorithm drifting, not just it
+      // changing. The empty string must yield the offset basis exactly.
+      expect(fnv1a64Hex(''), 'cbf29ce484222325');
+      expect(fnv1a64Hex('a'), 'af63dc4c8601ec8c');
+      expect(fnv1a64Hex('foobar'), '85944171f73967e8');
+    });
+
+    test('is computed without 64-bit int literals, so it runs on web', () {
+      // Regression: `0xcbf29ce484222325` as a literal is a *compile error*
+      // under dart2js, which made the whole package unbuildable for web.
+      // The values below were verified identical between the VM and a
+      // dart2js build executed under node.
+      expect(fnv1a64Hex('alice@example.com'), '67023fc4a7ff2a46');
+      expect(fnv1a64Hex('日本語テキスト'), '595827bcb1ebca5e');
+    });
+  });
+
+  group('IdGenerator secure-random fallback', () {
+    test('construction never throws, whatever the runtime provides', () {
+      // Regression: the fallback caught only UnsupportedError, but dart2js
+      // on Node throws a raw JS `ReferenceError: self is not defined` from
+      // Random.secure(). The narrower catch never fired, so merely
+      // constructing a Logger crashed the program — the exact opposite of
+      // "a logger must never break the program it observes". Found by
+      // compiling for web and actually running the output under node.
+      expect(IdGenerator.new, returnsNormally);
+      expect(() => Logger.create(sink: MemorySink()), returnsNormally);
     });
   });
 

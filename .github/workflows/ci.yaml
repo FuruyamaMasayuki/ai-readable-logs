@@ -21,6 +21,11 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: dart analyze --fatal-infos
       - run: dart test
+      # Guards web support, which `dart analyze` and `dart test` both miss:
+      # a 64-bit int literal is a hard dart2js compile error, and one sat in
+      # ids.dart making the whole package unbuildable for web without any
+      # other check noticing.
+      - run: dart compile js tool/web_entry.dart -o /tmp/ailog_web.js
       - run: dart doc --validate-links
       - run: dart pub publish --dry-run
 

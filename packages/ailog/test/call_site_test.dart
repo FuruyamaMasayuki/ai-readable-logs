@@ -93,6 +93,23 @@ void main() {
       expect(site, isNull);
     });
 
+    test('rejects a JS bundle regardless of its filename', () {
+      // Regression: the guard used to key on `.dart.js`, Flutter web's
+      // default output name. A plain `dart compile js -o app.js`, or any
+      // custom bundler name, slipped straight through and reported
+      // `→ app.js:3881 StackTrace_current` as the user's code. Caught by
+      // compiling this package for web and running the result.
+      for (final bundle in ['app.js', 'bundle.js', 'full.js', 'out.min.js']) {
+        final site = captureCallSite(
+          stackTrace: StackTrace.fromString(
+            '    at Object.wrapException (http://localhost/$bundle:4211:19)\n'
+            '    at StackTrace_current (http://localhost/$bundle:1002:3)\n',
+          ),
+        );
+        expect(site, isNull, reason: '$bundle must not name a call site');
+      }
+    });
+
     test('still resolves a source-mapped web frame', () {
       final site = captureCallSite(
         stackTrace: StackTrace.fromString(

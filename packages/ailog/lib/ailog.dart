@@ -23,7 +23,7 @@ export 'src/digest.dart'
     show Digest, DigestBuilder, ErrorGroup, MessageShape, NumericField;
 export 'src/export.dart'
     show LogFilter, LogSelection, buildDigest, digestFromJsonl;
-export 'src/ids.dart' show IdGenerator, SequenceCounter, fnv1a64, shortHash;
+export 'src/ids.dart' show IdGenerator, SequenceCounter, fnv1a64Hex, shortHash;
 export 'src/log_event.dart'
     show LogEvent, ErrorInfo, aiLogSchemaVersion, schemaLegend;
 export 'src/log_level.dart' show LogLevel;

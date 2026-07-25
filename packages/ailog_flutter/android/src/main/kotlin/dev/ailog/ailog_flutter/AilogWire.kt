@@ -22,12 +22,15 @@ internal object AilogHash {
     private val fnvOffsetBasis = java.lang.Long.parseUnsignedLong("cbf29ce484222325", 16)
     private const val FNV_PRIME = 0x100000001b3L
 
-    /** Non-cryptographic 64-bit FNV-1a hash, matching `fnv1a64` in Dart. */
+    /** Non-cryptographic 64-bit FNV-1a hash, matching `fnv1a64Hex` in Dart. */
     fun fnv1a64(input: String, seed: Long = fnvOffsetBasis): Long {
         var hash = seed
         for (element in input) {
             hash = hash xor element.code.toLong()
-            hash *= FNV_PRIME // Kotlin Long multiplication wraps silently, matching Dart's masked 64-bit math.
+            // Kotlin Long multiplication wraps silently. Dart computes the same
+            // value via two 32-bit halves (so it also builds for web); the two
+            // are verified equal against shared fixtures in AilogWireTest.
+            hash *= FNV_PRIME
         }
         return hash
     }

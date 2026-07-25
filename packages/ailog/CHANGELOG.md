@@ -1,5 +1,13 @@
 ## 0.4.0
 
+### Changed
+
+- `fnv1a64` (returning `int`) is replaced by **`fnv1a64Hex`** (returning the
+  16-character hex string). A 64-bit value cannot be represented in a web
+  `int`, so no `int`-returning form can be correct everywhere this package
+  runs. `shortHash` also drops its unused `seed` parameter, whose default
+  was itself a web-breaking literal.
+
 ### Added
 
 - **`JsonlPrintSink`.** Prints the same wire format `JsonlFileSink` writes,
@@ -24,38 +32,6 @@
 - `benchmark/logging_benchmark.dart`, so the README's performance numbers can
   be re-run rather than believed.
 
-### Fixed
-
-- **A script that only called `flush()` never exited.** `JsonlFileSink`'s
-  default `flushInterval` schedules a periodic `Timer`, and only `close()`
-  cancels it — a live `Timer` keeps the isolate alive, so `main()` returning
-  after `flush()` alone left the process hanging until killed. Found by
-  running the README's own quick-start example verbatim. The class doc, the
-  Quick Start in both READMEs, and every example now call `close()`, and a
-  subprocess regression test (`test/regression/`) guards it going forward.
-
-- **`includePlatformContext` duplicated ~133 bytes on every line** — OS,
-  Dart version, pid and locale, identical each time, in a format whose whole
-  premise is not wasting a context window. Measured: a 100-event file grew
-  73%, 182 → 315 bytes per line. `JsonlFileSink` now writes the platform
-  into each file's `_hdr` record once, and the option's documentation states
-  the per-event cost.
-
-- **`JsonlFileSink` could silently lose events.** Repeated `IOSink.flush()`
-  on a handle from `File.openWrite()`, with writes arriving between flushes,
-  dropped data — measured at 9 of 15 events lost in an ordinary
-  request-handler-shaped loop. The sink was rewritten onto a synchronous
-  `RandomAccessFile` with an explicit buffer; durability no longer depends
-  on the event loop getting a turn. New: `isHealthy`, `droppedEvents`,
-  `onError`, `bufferBytes`, `flushOnErrorLevel`.
-- `package:ailog` frames are now classified as noise, not application
-  frames — previously a digest's five-frame budget could be spent entirely
-  on this package's own zone plumbing, and the fingerprint could group
-  unrelated bugs logged through the same helper.
-- Digest timestamps rendered in local time while the JSONL is UTC.
-
-### Added
-
 - **Whole-log aggregates in the digest.** Every message shape counted
   (`lease acquired ×40` vs `lease released ×9`), and min/max/last of every
   numeric context field. Driven by a blind A/B test: a summarized digest
@@ -74,15 +50,60 @@
 - **`capturePrints`:** route ordinary `print()` calls into the structured
   log (tagged `print`, ambient trace attached), with a re-entrancy guard so
   a console sink cannot feed back into the log.
-- **`ConsoleSink.usingPrint()`** and `ConsoleSink(write: ...)`. The sink
-  wrote to `stdout` unconditionally, which on a Flutter device reaches
-  neither logcat nor the unified log — console output there was simply
-  invisible. A custom writer can also no longer break the caller by
-  throwing.
 - Digest honesty: breadcrumb entries are labeled as breadcrumbs, loggers
   that appear only inside causal chains are called out, and a group's
   context sample is labeled `first of N` (with the most recent shown when
   it differs).
+
+### Fixed
+
+- **The package did not compile for web at all.** `ids.dart` held
+  `0xcbf29ce484222325` as an integer literal, which is a hard dart2js
+  *compile* error ("can't be represented exactly in JavaScript") — so every
+  Flutter web or dart2js build failed outright. Nothing caught it: `dart
+  analyze` and `dart test` both run on the VM, where a 64-bit int is
+  ordinary. FNV-1a is now computed over two 32-bit halves using arithmetic
+  rather than wide bitwise ops, which is exact on both platforms. Hashes are
+  **byte-identical** to before — verified against the previous output, the
+  canonical FNV-1a 64 vectors, a dart2js build run under Node, and the
+  Kotlin port compiled and executed for cross-language parity. CI now
+  compiles for web so this cannot regress.
+- **`Logger.create` crashed on dart2js under Node.** `Random.secure()`
+  throws a raw JS `ReferenceError`, not the `UnsupportedError` the fallback
+  caught, so the deterministic-`Random` path written for exactly this case
+  never ran and construction took the program down with it.
+- **Checkpoints named the dart2js runtime as the caller** whenever the
+  bundle wasn't called `main.dart.js`. The guard keyed on Flutter web's
+  default output name, so `dart compile js -o app.js` and any custom
+  bundler name reported `→ app.js:3881 StackTrace_current` as the user's
+  code — confidently wrong, which is the one outcome the guard exists to
+  prevent. It now tests whether a frame resolves to a Dart source position
+  at all.
+- **A script that only called `flush()` never exited.** `JsonlFileSink`'s
+  default `flushInterval` schedules a periodic `Timer`, and only `close()`
+  cancels it — a live `Timer` keeps the isolate alive, so `main()` returning
+  after `flush()` alone left the process hanging until killed. Found by
+  running the README's own quick-start example verbatim. The class doc, the
+  Quick Start in both READMEs, and every example now call `close()`, and a
+  subprocess regression test (`test/regression/`) guards it going forward.
+- **`includePlatformContext` duplicated ~133 bytes on every line** — OS,
+  Dart version, pid and locale, identical each time, in a format whose whole
+  premise is not wasting a context window. Measured: a 100-event file grew
+  73%, 182 → 315 bytes per line. `JsonlFileSink` now writes the platform
+  into each file's `_hdr` record once, and the option's documentation states
+  the per-event cost.
+- **`JsonlFileSink` could silently lose events.** Repeated `IOSink.flush()`
+  on a handle from `File.openWrite()`, with writes arriving between flushes,
+  dropped data — measured at 9 of 15 events lost in an ordinary
+  request-handler-shaped loop. The sink was rewritten onto a synchronous
+  `RandomAccessFile` with an explicit buffer; durability no longer depends
+  on the event loop getting a turn. New: `isHealthy`, `droppedEvents`,
+  `onError`, `bufferBytes`, `flushOnErrorLevel`.
+- `package:ailog` frames are now classified as noise, not application
+  frames — previously a digest's five-frame budget could be spent entirely
+  on this package's own zone plumbing, and the fingerprint could group
+  unrelated bugs logged through the same helper.
+- Digest timestamps rendered in local time while the JSONL is UTC.
 
 ## 0.3.0
 
