@@ -4,15 +4,20 @@ description: >-
   AI-ready digest as a zip via the platform share sheet.
 version: 0.1.0
 repository: https://github.com/FuruyamaMasayuki/ai-readable-logs
-publish_to: none
+issue_tracker: https://github.com/FuruyamaMasayuki/ai-readable-logs/issues
+
+topics:
+  - logging
+  - logs
+  - share
+  - ai
 
 environment:
   sdk: ^3.5.0
   flutter: ">=3.22.0"
 
 dependencies:
-  ailog:
-    path: ../ailog
+  ailog: ^0.4.0
   flutter:
     sdk: flutter
   log_vault: ^0.1.1

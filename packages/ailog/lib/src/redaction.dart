@@ -46,7 +46,7 @@ class RedactionRule {
   /// paying for the two or three that could plausibly fire.
   final String? requiresSubstring;
 
-  /// Whether [Redactor.standard] includes this rule.
+  /// Whether a default-constructed [Redactor] includes this rule.
   final bool enabledByDefault;
 }
 

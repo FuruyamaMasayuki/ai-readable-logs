@@ -1,3 +1,11 @@
+## 0.3.0
+
+- `runAppGuarded` gains `capturePrint` / `forwardPrintsToConsole`: plain
+  `print()` calls (yours or a dependency's) are routed into the structured
+  log via `ailog`'s `capturePrints`.
+- Depends on `ailog ^0.4.0` as a hosted dependency, making the package
+  publishable; local development uses `pubspec_overrides.yaml`.
+
 ## 0.2.0
 
 - `ailog_flutter` is now a Flutter plugin (adds `android/` and `ios/`).

@@ -1,0 +1,5 @@
+# Local development: resolve ailog from the sibling directory instead of
+# pub.dev. This file is ignored by `dart pub publish`.
+dependency_overrides:
+  ailog:
+    path: ../ailog

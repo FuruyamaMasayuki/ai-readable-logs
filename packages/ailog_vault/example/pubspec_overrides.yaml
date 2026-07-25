@@ -1,0 +1,5 @@
+# Local development: resolve the sibling packages from this repo instead of
+# pub.dev.
+dependency_overrides:
+  ailog:
+    path: ../../ailog

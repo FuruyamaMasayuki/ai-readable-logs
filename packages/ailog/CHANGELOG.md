@@ -1,3 +1,45 @@
+## 0.4.0
+
+### Fixed
+
+- **`JsonlFileSink` could silently lose events.** Repeated `IOSink.flush()`
+  on a handle from `File.openWrite()`, with writes arriving between flushes,
+  dropped data — measured at 9 of 15 events lost in an ordinary
+  request-handler-shaped loop. The sink was rewritten onto a synchronous
+  `RandomAccessFile` with an explicit buffer; durability no longer depends
+  on the event loop getting a turn. New: `isHealthy`, `droppedEvents`,
+  `onError`, `bufferBytes`, `flushOnErrorLevel`.
+- `package:ailog` frames are now classified as noise, not application
+  frames — previously a digest's five-frame budget could be spent entirely
+  on this package's own zone plumbing, and the fingerprint could group
+  unrelated bugs logged through the same helper.
+- Digest timestamps rendered in local time while the JSONL is UTC.
+
+### Added
+
+- **Whole-log aggregates in the digest.** Every message shape counted
+  (`lease acquired ×40` vs `lease released ×9`), and min/max/last of every
+  numeric context field. Driven by a blind A/B test: a summarized digest
+  lost to the raw log on a connection-pool leak because the evidence — the
+  releases that never happened — lived in the *successful* requests, which
+  summarization had discarded. With the counts added, the digest found the
+  same root cause from a fifth of the bytes.
+- **`LogFilter` / `LogSelection`:** choose what is worth an AI's context
+  window — `collapseRepeats`, `aroundErrors`, `onlyFailedTraces`,
+  level/logger/time/count bounds. Aggregates are computed over the
+  *unfiltered* input, and both output formats state what was dropped.
+- **String output.** `MemorySink.toJsonl()`/`toMarkdown()`/`export()`,
+  `LogSelection.toReport()` (digest + surviving events),
+  `buildDigest(events)`, `digestFromJsonl(text)`. No filesystem — works on
+  web.
+- **`capturePrints`:** route ordinary `print()` calls into the structured
+  log (tagged `print`, ambient trace attached), with a re-entrancy guard so
+  a console sink cannot feed back into the log.
+- Digest honesty: breadcrumb entries are labeled as breadcrumbs, loggers
+  that appear only inside causal chains are called out, and a group's
+  context sample is labeled `first of N` (with the most recent shown when
+  it differs).
+
 ## 0.3.0
 
 ### Fixed

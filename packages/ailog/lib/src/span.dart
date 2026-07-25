@@ -14,7 +14,7 @@ import 'log_level.dart';
 /// Handle returned by [Logger.startSpan].
 ///
 /// Must be completed with [succeed] or [fail] (or use [Logger.span] /
-/// [Logger.spanAsync], which do this automatically).
+/// [Logger.spanSync], which do this automatically).
 class Span {
   Span.fromLogger(this._logger, this._scope, this.name)
       : _startedAt = _logger.now();

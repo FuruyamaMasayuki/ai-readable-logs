@@ -1,11 +1,18 @@
 name: ailog
 description: >-
   Structured JSONL logging designed to be read by an AI. Trace correlation,
-  causal chains embedded in error lines, error fingerprinting, automatic
-  secret redaction and a digest CLI — with zero dependencies.
-version: 0.3.0
+  causal chains, error fingerprinting, secret redaction and a digest CLI.
+  Zero dependencies.
+version: 0.4.0
 repository: https://github.com/FuruyamaMasayuki/ai-readable-logs
-publish_to: none
+issue_tracker: https://github.com/FuruyamaMasayuki/ai-readable-logs/issues
+
+topics:
+  - logging
+  - logs
+  - observability
+  - ai
+  - jsonl
 
 environment:
   sdk: ^3.5.0
