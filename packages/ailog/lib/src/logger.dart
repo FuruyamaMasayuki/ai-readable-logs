@@ -236,6 +236,44 @@ class Logger {
     );
   }
 
+  /// Logs a pre-built [ErrorInfo] rather than a Dart exception object.
+  ///
+  /// Use this when an error originates outside Dart — most commonly a
+  /// native (iOS/Android) exception forwarded over a platform channel,
+  /// where the type/message/frames already arrived as plain strings and
+  /// there is no Dart [StackTrace] to run through [ErrorInfo.from]. Prefer
+  /// [error]/[fatal] for anything caught in Dart code.
+  ///
+  /// [info]'s message and frames are still redacted through this logger's
+  /// [Redactor] before being emitted.
+  void logError(
+    ErrorInfo info, {
+    String? message,
+    Map<String, Object?>? context,
+    List<String>? tags,
+    LogLevel level = LogLevel.error,
+    int? durationMs,
+  }) {
+    final redactor = _core.sanitizer.redactor;
+    ErrorInfo sanitize(ErrorInfo source) => ErrorInfo(
+          type: source.type,
+          message: redactor.redactString(source.message),
+          fingerprint: source.fingerprint,
+          frames: source.frames.map(redactor.redactString).toList(),
+          cause: source.cause == null ? null : sanitize(source.cause!),
+        );
+
+    final sanitized = sanitize(info);
+    _emit(
+      level,
+      message ?? sanitized.message,
+      context: context,
+      tags: tags,
+      error: sanitized,
+      durationMs: durationMs,
+    );
+  }
+
   void log(
     LogLevel level,
     String message, {

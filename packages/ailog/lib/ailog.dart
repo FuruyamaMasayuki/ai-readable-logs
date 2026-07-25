@@ -16,7 +16,12 @@ export 'src/log_event.dart'
 export 'src/log_level.dart' show LogLevel;
 export 'src/logger.dart';
 export 'src/normalizer.dart'
-    show StackFrame, parseStackTrace, normalizeMessage, errorFingerprint;
+    show
+        StackFrame,
+        parseStackTrace,
+        normalizeMessage,
+        errorFingerprint,
+        errorFingerprintFromFrames;
 export 'src/redaction.dart'
     show
         Redactor,

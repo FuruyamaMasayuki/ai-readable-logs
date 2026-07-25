@@ -70,6 +70,57 @@ void main() {
     });
   });
 
+  group('errorFingerprintFromFrames', () {
+    test('same type and frames produce the same fingerprint', () {
+      final fp1 = errorFingerprintFromFrames(
+        errorType: 'NSException',
+        message: 'crash 1',
+        frames: const ['AppDelegate.didFinishLaunching(App.swift:42)'],
+      );
+      final fp2 = errorFingerprintFromFrames(
+        errorType: 'NSException',
+        message: 'crash 2',
+        frames: const ['AppDelegate.didFinishLaunching(App.swift:42)'],
+      );
+      expect(fp1, fp2,
+          reason: 'message differences must not affect the fingerprint');
+    });
+
+    test('different frames produce different fingerprints', () {
+      final fp1 = errorFingerprintFromFrames(
+        errorType: 'NSException',
+        message: 'x',
+        frames: const ['A.method(A.swift:1)'],
+      );
+      final fp2 = errorFingerprintFromFrames(
+        errorType: 'NSException',
+        message: 'x',
+        frames: const ['B.method(B.swift:2)'],
+      );
+      expect(fp1, isNot(fp2));
+    });
+
+    test('falls back to the normalized message when there are no frames', () {
+      final fp1 = errorFingerprintFromFrames(
+          errorType: 'E', message: 'order 44 missing');
+      final fp2 = errorFingerprintFromFrames(
+          errorType: 'E', message: 'order 99 missing');
+      expect(fp1, fp2);
+    });
+
+    test('does not run frames through Dart stack trace parsing', () {
+      // A frame in an arbitrary native format must be hashed verbatim, not
+      // rejected or altered the way parseStackTrace would treat unknown
+      // lines.
+      final fp = errorFingerprintFromFrames(
+        errorType: 'E',
+        message: 'x',
+        frames: const ['some.native.Format#withoutDartConventions'],
+      );
+      expect(fp, isNotEmpty);
+    });
+  });
+
   group('parseStackTrace', () {
     test('marks SDK frames as non-app', () {
       final stack = StackTrace.fromString(

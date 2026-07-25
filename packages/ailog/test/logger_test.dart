@@ -128,5 +128,86 @@ void main() {
 
       expect(sink.events.single.context, {'a': 1, 'b': 2});
     });
+
+    test(
+        'logError() emits a pre-built ErrorInfo without running it through '
+        'ErrorInfo.from', () {
+      final sink = MemorySink();
+      final logger = Logger.forTesting(sink: sink);
+
+      logger.logError(
+        ErrorInfo(
+          type: 'NSException',
+          message: 'native crash',
+          fingerprint: 'native-fp-1',
+          frames: const ['AppDelegate.swift:42 didFinishLaunching'],
+        ),
+        context: {'platform': 'ios'},
+      );
+
+      final event = sink.events.single;
+      expect(event.level, LogLevel.error);
+      expect(event.error!.type, 'NSException');
+      expect(event.error!.fingerprint, 'native-fp-1');
+      expect(event.error!.frames, ['AppDelegate.swift:42 didFinishLaunching']);
+      expect(event.context['platform'], 'ios');
+    });
+
+    test(
+        'logError() redacts the message and frames through this logger\'s '
+        'Redactor', () {
+      final sink = MemorySink();
+      final logger = Logger.create(sink: sink, sessionId: 's1');
+
+      logger.logError(
+        ErrorInfo(
+          type: 'HttpException',
+          message: 'failed for alice@example.com',
+          fingerprint: 'fp',
+          frames: const ['contact bob@example.com for details'],
+        ),
+      );
+
+      final event = sink.events.single;
+      expect(event.error!.message, isNot(contains('alice@example.com')));
+      expect(event.error!.message, contains('[redacted:email'));
+      expect(event.error!.frames.single, isNot(contains('bob@example.com')));
+    });
+
+    test('logError() respects an explicit level and message override', () {
+      final sink = MemorySink();
+      final logger = Logger.forTesting(sink: sink);
+
+      logger.logError(
+        ErrorInfo(type: 'E', message: 'm', fingerprint: 'fp'),
+        message: 'custom summary',
+        level: LogLevel.fatal,
+      );
+
+      final event = sink.events.single;
+      expect(event.level, LogLevel.fatal);
+      expect(event.message, 'custom summary');
+    });
+
+    test('logError() sanitizes a nested cause as well', () {
+      final sink = MemorySink();
+      final logger = Logger.create(sink: sink, sessionId: 's1');
+
+      logger.logError(
+        ErrorInfo(
+          type: 'Outer',
+          message: 'outer failure',
+          fingerprint: 'fp1',
+          cause: ErrorInfo(
+            type: 'Inner',
+            message: 'leaked alice@example.com',
+            fingerprint: 'fp2',
+          ),
+        ),
+      );
+
+      final event = sink.events.single;
+      expect(event.error!.cause!.message, isNot(contains('alice@example.com')));
+    });
   });
 }

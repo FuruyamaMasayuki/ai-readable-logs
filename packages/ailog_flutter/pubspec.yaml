@@ -1,8 +1,9 @@
 name: ailog_flutter
 description: >-
   Flutterアプリ向けailogアドオン。FlutterError.onErrorとPlatformDispatcher.onError
-  の自動フック、Widgetビルドエラーの構造化記録、画面遷移のトレース相関を提供する。
-version: 0.1.0
+  の自動フック、Widgetビルドエラーの構造化記録、画面遷移のトレース相関、
+  iOS/Androidネイティブコードからの同一JSONLへのログ出力を提供する。
+version: 0.2.0
 repository: https://github.com/FuruyamaMasayuki/ailog
 publish_to: none
 
@@ -22,3 +23,10 @@ dev_dependencies:
   lints: ^4.0.0
 
 flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.ailog.ailog_flutter
+        pluginClass: AilogFlutterPlugin
+      ios:
+        pluginClass: AilogFlutterPlugin

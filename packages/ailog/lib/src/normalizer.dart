@@ -186,3 +186,32 @@ String errorFingerprint({
   }
   return shortHash(signature.toString());
 }
+
+/// Fingerprint for an error whose frames are already plain strings rather
+/// than a Dart [StackTrace] — e.g. one reconstructed from a non-Dart stack
+/// trace forwarded over a platform channel from native (iOS/Android) code.
+///
+/// Frames are hashed as given, with no Dart-specific parsing or line-number
+/// stripping; callers that build such frames (see `ailog_flutter`'s native
+/// bridge) are expected to already have normalized them appropriately for
+/// their platform.
+String errorFingerprintFromFrames({
+  required String errorType,
+  required String message,
+  List<String> frames = const [],
+  int framesInFingerprint = 5,
+}) {
+  final signature = StringBuffer(errorType);
+  if (frames.isEmpty) {
+    signature
+      ..write('|')
+      ..write(normalizeMessage(message));
+  } else {
+    for (final frame in frames.take(framesInFingerprint)) {
+      signature
+        ..write('|')
+        ..write(frame);
+    }
+  }
+  return shortHash(signature.toString());
+}

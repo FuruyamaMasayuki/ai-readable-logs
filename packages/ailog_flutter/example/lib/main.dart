@@ -1,14 +1,18 @@
 // ailog_flutter の最小限の使用例。
 //
 // - AilogFlutter.install でフレームワークのエラー通知を自動記録
+// - AilogNativeBridge.install でiOS/AndroidネイティブコードのログをDartと同じ
+//   JSONLに合流させる(通常はMethodChannel経由、クラッシュ時のみネイティブ側が
+//   直接ファイルに書き込む)
 // - AilogNavigatorObserver で画面遷移をトレース記録
 // - runAppGuarded でzoneレベルの未捕捉エラーも記録
 //
-// 4つのボタンでそれぞれの記録経路を実際に発火させて確認できる:
+// 5つのボタンでそれぞれの記録経路を実際に発火させて確認できる:
 //   1. 画面遷移       -> AilogNavigatorObserver
 //   2. 捕捉済みエラー -> 通常の logger.error()
 //   3. Widgetビルドエラー -> ErrorWidget.builder フック
 //   4. 非同期の未捕捉エラー -> PlatformDispatcher.onError フック
+//   5. ネイティブ側からのログ -> Ailog.info(Kotlin/Swift) -> MethodChannel
 import 'dart:async';
 import 'dart:io';
 
@@ -16,6 +20,7 @@ import 'package:ailog_flutter/ailog_flutter.dart';
 import 'package:flutter/material.dart';
 
 late final Logger logger;
+late final AilogNativeBridge nativeBridge;
 
 void main() {
   final logFile = '${Directory.systemTemp.path}/ailog_example/app.jsonl';
@@ -28,6 +33,11 @@ void main() {
 
   // 既存のエラーハンドラ(あれば)をchainしつつ、JSONLへの記録を追加する。
   AilogFlutter.install(logger);
+
+  // iOS/Androidのネイティブ側に同じログファイルのパスを伝える。ネイティブ側は
+  // 通常このパスを直接使わずMethodChannel経由でここに転送するが、クラッシュで
+  // Flutterエンジンが落ちた後だけこのパスに直接書き込む(README参照)。
+  nativeBridge = AilogNativeBridge.install(logger, logFilePath: logFile);
 
   runAppGuarded(logger, () {
     WidgetsFlutterBinding.ensureInitialized();
@@ -98,6 +108,11 @@ class HomePage extends StatelessWidget {
                 });
               },
               child: const Text('4. 非同期の未捕捉エラーをログに残す'),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: () => nativeBridge.requestNativeTestLog(),
+              child: const Text('5. ネイティブ側からログを出す'),
             ),
           ],
         ),
