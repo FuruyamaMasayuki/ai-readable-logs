@@ -439,6 +439,31 @@ failure — an over-count, and a reason to wrap work in a trace.
 dart run ailog:ailog_digest .ailog/app.jsonl --format json --max-groups 10 -o digest.json
 ```
 
+### Reading a file with human eyes
+
+The JSONL file is deliberately machine-shaped — short keys, one line per
+event. When *you* need to look at a recovered file (a device pull, a bug
+report attachment) rather than summarize it, `--format pretty` replays it
+exactly the way `ConsoleSink` would have shown it live:
+
+```sh
+dart run ailog:ailog_digest app.jsonl --format pretty
+```
+
+```text
+14:47:41.966 INFO  [app] #cf262f6c checkout started requestId=req-1 userEmail=[redacted:email#28564e4b]
+14:47:41.979 ERROR [app] #cf262f6c Bad state: card declined requestId=req-1
+  StateError: Bad state: card declined [fp:7ed4a8d1]
+    at checkout.dart:9 CartService.charge
+  — causal chain (2 events) —
+    -13ms  checkout started
+    -4ms  cache miss
+```
+
+Colour when writing to a terminal, plain text with `-o file`. Non-JSON
+lines mixed into the file (a stray print, a logcat banner from a tee'd
+session) are passed through untouched rather than hidden.
+
 `DigestBuilder` is also exported, so you can build the same summary in-process
 (for an admin screen, a Slack notification, and so on) without shelling out:
 

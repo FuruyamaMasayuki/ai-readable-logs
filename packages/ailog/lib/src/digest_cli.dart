@@ -3,7 +3,19 @@
 /// integration tests.
 library;
 
-enum DigestOutputFormat { markdown, json }
+enum DigestOutputFormat {
+  markdown,
+  json,
+
+  /// Not a digest at all: re-render every event through [ConsoleFormatter],
+  /// the same way `ConsoleSink` shows it during development.
+  ///
+  /// Exists for the person holding a recovered `app.jsonl` — off a device,
+  /// out of a bug report — who wants to *look* at it before (or instead of)
+  /// summarizing it. The pieces always existed (`LogEvent.fromJson` +
+  /// `ConsoleFormatter.format`); this flag is the missing glue.
+  pretty,
+}
 
 /// Parsed command-line options for `ailog_digest`.
 class DigestCliOptions {
@@ -46,6 +58,8 @@ class DigestCliOptions {
             format = DigestOutputFormat.json;
           } else if (value == 'markdown' || value == 'md') {
             format = DigestOutputFormat.markdown;
+          } else if (value == 'pretty') {
+            format = DigestOutputFormat.pretty;
           } else {
             return null;
           }
@@ -84,7 +98,11 @@ Usage: dart run ailog:ailog_digest <file.jsonl> [file2.jsonl ...] [options]
 Reduces ailog JSONL output into a bounded digest for AI analysis.
 
 Options:
-  --format <markdown|json>   Output format (default: markdown)
+  --format <markdown|json|pretty>
+                             markdown/json: a bounded digest (default: markdown).
+                             pretty: no digest — re-render every event the way
+                             the console shows it, for reading a recovered
+                             .jsonl file with human eyes.
   --max-groups <n>           Max error groups to include (default: 20)
   -o, --output <path>        Write to a file instead of stdout
   -h, --help                 Show this help

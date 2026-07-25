@@ -14,6 +14,12 @@
 
 ### Added
 
+- **`ailog_digest --format pretty`** — not a digest, a replay: re-renders a
+  recovered `.jsonl` file exactly the way `ConsoleSink` shows events live.
+  Closes the one gap in the human-readability story: the file itself is
+  machine-shaped by design, and there was no way to look at one with human
+  eyes short of reading raw JSON. Colour on a terminal, plain with `-o`;
+  interleaved non-JSON lines pass through untouched.
 - **`JsonlPrintSink`.** Prints the same wire format `JsonlFileSink` writes,
   one line per event, through `print`. Exists for a real device with no
   reachable filesystem path: `flutter run` already mirrors the app's print

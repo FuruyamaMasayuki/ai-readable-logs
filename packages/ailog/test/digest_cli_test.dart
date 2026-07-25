@@ -97,5 +97,17 @@ void main() {
       final options = DigestCliOptions.parse([])!;
       expect(options.paths, isEmpty);
     });
+
+    test('--format pretty selects the replay renderer', () {
+      final options =
+          DigestCliOptions.parse(['a.jsonl', '--format', 'pretty'])!;
+      expect(options.format, DigestOutputFormat.pretty);
+    });
+
+    test('usage text documents pretty alongside the digest formats', () {
+      // The flag is only discoverable through --help; if it falls out of the
+      // usage string it effectively stops existing.
+      expect(digestCliUsage, contains('pretty'));
+    });
   });
 }
