@@ -97,9 +97,12 @@ Future<void> main() async {
     });
   });
 
-  // Pushes any buffered lines to disk. Call this before reading the file
-  // back, before the process exits, or before sharing/uploading it.
+  // Pushes any buffered lines to disk, then releases the sink. close() is
+  // the one that matters for a script like this one: JsonlFileSink runs a
+  // background timer to auto-flush, and only close() cancels it — call
+  // flush() alone and this process never exits.
   await logger.flush();
+  await logger.close();
 }
 ```
 

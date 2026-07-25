@@ -104,9 +104,12 @@ Future<void> main() async {
     });
   });
 
-  // Pushes buffered lines to disk. Call this before reading the file back,
-  // before the process exits, or before handing it off to be shared.
+  // Pushes buffered lines to disk, then releases the sink. Don't stop at
+  // flush(): JsonlFileSink runs a background timer to auto-flush, and only
+  // close() cancels it. In a short-lived script like this one, flush()
+  // alone leaves that timer running and the process never exits.
   await logger.flush();
+  await logger.close();
 }
 ```
 
@@ -232,8 +235,15 @@ memorySink.export(LogFilter.forAi).toReport()   // digest + kept events
 ```dart
 await logger.flush();     // push buffered lines to disk — before exit,
                           // before sharing, before reading the file back
-await logger.close();     // flush, then release the sink
+await logger.close();     // flush, then release the sink — see below
 ```
+
+**In a script or CLI, call `close()`, not just `flush()`.** `JsonlFileSink`
+schedules a periodic timer (`flushInterval`, default 2s) to auto-flush, and
+only `close()` cancels it. A live `Timer` keeps the isolate alive, so a
+program that calls `flush()` and returns from `main()` does not exit — it
+hangs until killed. `flush()` alone is fine mid-program (before reading the
+file back, before sharing); `close()` is what lets the process end.
 
 A `JsonlFileSink` writes error-level events out immediately by default
 (`flushOnErrorLevel`), because the buffered line you most regret losing is

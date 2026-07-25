@@ -19,6 +19,14 @@
 
 ### Fixed
 
+- **A script that only called `flush()` never exited.** `JsonlFileSink`'s
+  default `flushInterval` schedules a periodic `Timer`, and only `close()`
+  cancels it — a live `Timer` keeps the isolate alive, so `main()` returning
+  after `flush()` alone left the process hanging until killed. Found by
+  running the README's own quick-start example verbatim. The class doc, the
+  Quick Start in both READMEs, and every example now call `close()`, and a
+  subprocess regression test (`test/regression/`) guards it going forward.
+
 - **`includePlatformContext` duplicated ~133 bytes on every line** — OS,
   Dart version, pid and locale, identical each time, in a format whose whole
   premise is not wasting a context window. Measured: a 100-event file grew

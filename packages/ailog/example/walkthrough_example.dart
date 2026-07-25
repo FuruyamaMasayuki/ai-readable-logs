@@ -62,8 +62,14 @@ Future<void> main() async {
     );
   }
 
-  // Push buffered lines to disk before reading the file back.
+  // Push buffered lines to disk before reading the file back, then close.
+  //
+  // close() matters here, not just flush(): JsonlFileSink schedules a
+  // periodic Timer (flushInterval, default 2s) to auto-flush, and only
+  // close() cancels it. A live Timer keeps the isolate alive — flush()
+  // alone leaves this script hanging forever instead of exiting.
   await logger.flush();
+  await logger.close();
 
   // ── 4. What you now have ────────────────────────────────────────────────
   final bytes = File(logPath).lengthSync();

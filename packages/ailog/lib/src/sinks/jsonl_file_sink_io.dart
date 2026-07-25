@@ -29,6 +29,13 @@ import 'log_sink.dart';
 ///   cannot run while the isolate is executing synchronous code — which
 ///   describes an infinite loop, a runaway computation, and the allocation
 ///   storm before an OOM kill, i.e. exactly the crashes the log exists for.
+///
+/// **Call [close], not just [flush], in a script or CLI.** [flushInterval]
+/// schedules a periodic [Timer] to auto-flush, and only [close] cancels it.
+/// A live [Timer] keeps the isolate alive, so a `main()` that calls [flush]
+/// and returns does not exit — it hangs until the process is killed. This is
+/// easy to hit by copying an example that only calls [flush]; if a Dart
+/// script using this sink won't exit, this is why.
 class JsonlFileSink implements LogSink {
   JsonlFileSink({
     required String path,
