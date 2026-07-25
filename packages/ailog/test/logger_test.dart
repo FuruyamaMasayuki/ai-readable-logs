@@ -440,4 +440,78 @@ void main() {
       expect(event.error!.cause!.message, isNot(contains('alice@example.com')));
     });
   });
+
+  group('startSpan (manual form)', () {
+    test('the completion event carries the trace and span ids', () {
+      final sink = MemorySink();
+      final logger = Logger.create(sink: sink);
+
+      logger.startSpan('upload').succeed();
+
+      final event = sink.events.single;
+      expect(event.message, 'upload completed');
+      expect(event.traceId, isNotNull);
+      expect(event.spanId, isNotNull);
+      expect(event.durationMs, isNotNull);
+    });
+
+    test('does NOT install its scope — intervening logs are unattributed', () {
+      // Documented, deliberate, and a genuine trap: startSpan only creates
+      // the span. This test pins the behaviour so the docs stay true, and so
+      // that changing it is a conscious decision rather than an accident.
+      final sink = MemorySink();
+      final logger = Logger.create(sink: sink);
+
+      final span = logger.startSpan('upload');
+      logger.info('between start and finish');
+      span.succeed();
+
+      final between = sink.events
+          .firstWhere((e) => e.message == 'between start and finish');
+      expect(between.traceId, isNull,
+          reason: 'use runWithScope(span.scope, ...) or logger.span() instead');
+      expect(between.spanId, isNull);
+    });
+
+    test('runWithScope(span.scope, ...) attributes them correctly', () {
+      final sink = MemorySink();
+      final logger = Logger.create(sink: sink);
+
+      final span = logger.startSpan('upload');
+      runWithScope(span.scope, () => logger.info('inside'));
+      span.succeed();
+
+      final inside = sink.events.firstWhere((e) => e.message == 'inside');
+      final done =
+          sink.events.firstWhere((e) => e.message == 'upload completed');
+      expect(inside.traceId, done.traceId);
+      expect(inside.spanId, done.spanId);
+    });
+
+    test('finishing twice emits only once', () {
+      final sink = MemorySink();
+      final logger = Logger.create(sink: sink);
+
+      final span = logger.startSpan('upload')
+        ..succeed()
+        ..succeed();
+      span.fail(StateError('too late'));
+
+      expect(sink.events, hasLength(1));
+    });
+
+    test('fail() records the error, duration and causal chain', () {
+      final sink = MemorySink();
+      final logger = Logger.create(sink: sink);
+
+      final span = logger.startSpan('upload');
+      span.fail(StateError('boom'), StackTrace.current);
+
+      final event = sink.events.single;
+      expect(event.level, LogLevel.error);
+      expect(event.message, 'upload failed');
+      expect(event.error!.type, 'StateError');
+      expect(event.durationMs, isNotNull);
+    });
+  });
 }

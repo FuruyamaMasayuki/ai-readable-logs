@@ -197,13 +197,21 @@ logger.spanSync('parse', (span) => decode(bytes));
 
 // Manual control when the work isn't a single callback.
 final span = logger.startSpan('upload');
-...
-span.end();                       // or span.fail(error, stackTrace)
+await runWithScope(span.scope, () async { ... });   // ← don't skip this
+span.succeed();                   // or span.fail(error, stackTrace)
+span.elapsedMs;                   // duration so far, before finishing
 ```
 
 IDs propagate through `Zone`, so anything logged inside — including after an
 `await`, inside a callback, or from a nested function — inherits them
 without being passed a parameter.
+
+**Prefer the callback forms.** `startSpan` only *creates* the span; it does
+not install its scope, so logs written between `startSpan()` and
+`succeed()` come out with no trace or span id at all unless you wrap them
+in `runWithScope(span.scope, …)` yourself. `span()` and `spanSync()` do that
+for you, and close the span on both return and throw. Reach for the manual
+form only when the work genuinely isn't a single callback.
 
 ### Guarding expensive context
 

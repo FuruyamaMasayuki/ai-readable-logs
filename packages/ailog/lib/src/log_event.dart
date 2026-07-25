@@ -92,7 +92,16 @@ class ErrorInfo {
     String Function(String)? sanitizeText,
   }) {
     final type = error.runtimeType.toString();
-    final rawMessage = error.toString();
+    // `toString()` on a thrown object is caller code and can itself throw —
+    // a buggy override, an uninitialized `late` field, a getter that fails.
+    // Unguarded, that turned `logger.error(e, st)` into a second, different
+    // crash while trying to record the first one.
+    String rawMessage;
+    try {
+      rawMessage = error.toString();
+    } catch (thrown) {
+      rawMessage = '<$type.toString() threw ${thrown.runtimeType}>';
+    }
     final message = sanitizeText?.call(rawMessage) ?? rawMessage;
 
     // Parsed once and used for both the displayed frames and the

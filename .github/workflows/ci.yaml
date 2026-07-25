@@ -19,6 +19,10 @@ jobs:
           sdk: stable
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed .
+      # Covers tool/documented_api_check.dart, which references every API the
+      # READMEs document — so an example that drifted from the code (a
+      # renamed method, a removed parameter) fails the build instead of
+      # shipping. A README is not compiled; that file is.
       - run: dart analyze --fatal-infos
       - run: dart test
       # Guards web support, which `dart analyze` and `dart test` both miss:

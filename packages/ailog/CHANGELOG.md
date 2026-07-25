@@ -2,6 +2,10 @@
 
 ### Changed
 
+- `Span` has no `end()` — the README documented one that never existed. The
+  real methods are `succeed()` and `fail()`. `tool/documented_api_check.dart`
+  now references every documented API and is analyzed in CI, so an example
+  that drifts from the code fails the build.
 - `fnv1a64` (returning `int`) is replaced by **`fnv1a64Hex`** (returning the
   16-character hex string). A 64-bit value cannot be represented in a web
   `int`, so no `int`-returning form can be correct everywhere this package
@@ -79,6 +83,14 @@
   code — confidently wrong, which is the one outcome the guard exists to
   prevent. It now tests whether a frame resolves to a Dart source position
   at all.
+- **A value whose `toString()` throws crashed the host program.** Passing a
+  domain object with a buggy override, an uninitialized `late` field, or a
+  throwing getter in `context:` — or throwing one — propagated straight out
+  of `logger.info()` / `logger.error()`. That is precisely the failure this
+  package promises never to cause. All value paths (context values, map
+  keys, past-depth-limit values, `Uri`, and the thrown error itself) now
+  contain it and record `<toString() threw StateError>`, naming the
+  exception rather than silently dropping the field.
 - **A script that only called `flush()` never exited.** `JsonlFileSink`'s
   default `flushInterval` schedules a periodic `Timer`, and only `close()`
   cancels it — a live `Timer` keeps the isolate alive, so `main()` returning

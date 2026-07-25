@@ -90,10 +90,10 @@ class Sanitizer {
     if (value is String) return _string(value);
     if (value is DateTime) return value.toUtc().toIso8601String();
     if (value is Duration) return '${value.inMilliseconds}ms';
-    if (value is Uri) return _string(value.toString());
+    if (value is Uri) return _string(_safeToString(value));
     if (value is Enum) return value.name;
 
-    if (depth >= limits.maxDepth) return _string(value.toString());
+    if (depth >= limits.maxDepth) return _string(_safeToString(value));
 
     // Containers are recorded in `seen` and never un-recorded. Releasing them
     // after the subtree finished would only guard against true cycles, and
@@ -135,7 +135,7 @@ class Sanitizer {
           result['…'] = '+${value.length - count} more fields';
           break;
         }
-        final key = entry.key.toString();
+        final key = _safeToString(entry.key as Object);
         result[key] = redactor.isSensitiveKey(key)
             ? redactor.redactValueOfSensitiveKey(entry.value)
             : _sanitize(entry.value, depth + 1, seen);
@@ -159,7 +159,7 @@ class Sanitizer {
       // A broken toJson() must not break logging.
     }
 
-    return _string(value.toString());
+    return _string(_safeToString(value));
   }
 
   /// Redacts and length-bounds a standalone string.
@@ -215,5 +215,25 @@ class Sanitizer {
     // value is missing.
     final dropped = redacted.length - cut + droppedBeforeRedaction;
     return '$kept…+$dropped chars';
+  }
+}
+
+/// `toString()` where the object might not cooperate.
+///
+/// Anything reaching the sanitizer is caller data, and `toString()` is
+/// caller code: a buggy override, an uninitialized `late` field, a getter
+/// that throws. Left unguarded, passing such an object in `context:` took
+/// the *host program* down from inside a `logger.info()` call — the precise
+/// failure this package promises never to cause.
+///
+/// The marker names the exception type rather than swallowing it silently,
+/// so the log says why a value is missing instead of just omitting it.
+String _safeToString(Object value) {
+  try {
+    return value.toString();
+  } catch (error) {
+    // `runtimeType` comes from the runtime, not from the object's own code,
+    // so reading it here cannot fail the same way.
+    return '<toString() threw ${error.runtimeType}>';
   }
 }

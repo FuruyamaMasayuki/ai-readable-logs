@@ -297,6 +297,20 @@ class Logger {
   ///
   /// If there is no active trace yet, one is created implicitly so a span is
   /// never orphaned.
+  ///
+  /// **This only creates the span; it does not install its scope.** Anything
+  /// logged between here and [Span.succeed]/[Span.fail] comes out with no
+  /// trace or span id unless you wrap it yourself:
+  ///
+  /// ```dart
+  /// final span = logger.startSpan('upload');
+  /// await runWithScope(span.scope, () async { ... });
+  /// span.succeed();
+  /// ```
+  ///
+  /// Prefer [span] or [spanSync], which do that wrapping and also close the
+  /// span on both return and throw. Reach for this form only when the work
+  /// genuinely isn't a single callback.
   Span startSpan(String name, {Map<String, Object?>? context}) {
     var scope = currentScope;
     if (scope.traceId == null) {
