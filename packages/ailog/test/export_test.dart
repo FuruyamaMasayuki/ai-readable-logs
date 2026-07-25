@@ -411,6 +411,89 @@ void main() {
       expect(lines.last, contains('"msg":"m9"'));
     });
   });
+
+  group('completeness (seq coverage)', () {
+    LogEvent at(int seq, {String session = 's'}) => LogEvent(
+          time: DateTime.utc(2026, 1, 1, 0, 0, seq),
+          level: LogLevel.info,
+          message: 'm',
+          logger: 'app',
+          sessionId: session,
+          sequence: seq,
+        );
+
+    test('a complete run reports nothing missing', () {
+      final digest = buildDigest([for (var i = 1; i <= 20; i++) at(i)]);
+
+      expect(digest.missingEvents, 0);
+      expect(digest.toMarkdown(), isNot(contains('Incomplete')));
+    });
+
+    test('a rotated-away prefix is counted exactly', () {
+      // The measured case: 100,000 events written, rotation kept the tail,
+      // and the digest reported 63,686 as if that were the whole run.
+      final digest =
+          buildDigest([for (var i = 36315; i <= 100000; i += 1) at(i)]);
+
+      expect(digest.missingEvents, 36314);
+      expect(digest.toMarkdown(), contains('36314 more events'));
+      expect(digest.toMarkdown(), contains('lower bounds'));
+    });
+
+    test('a gap in the middle is counted', () {
+      // A file not supplied, or writes dropped.
+      final digest = buildDigest([
+        for (var i = 1; i <= 10; i++) at(i),
+        for (var i = 21; i <= 30; i++) at(i),
+      ]);
+
+      expect(digest.missingEvents, 10);
+    });
+
+    test('sessions are accounted separately', () {
+      // seq is monotonic per writer only; pooling them would invent gaps.
+      final digest = buildDigest([
+        for (var i = 1; i <= 5; i++) at(i, session: 'a'),
+        for (var i = 1; i <= 5; i++) at(i, session: 'b'),
+      ]);
+
+      expect(digest.missingEvents, 0);
+      expect(digest.coverage, hasLength(2));
+    });
+
+    test('events without a usable seq do not invent a gap', () {
+      // A hand-written or foreign line parses with seq 0; treating that as
+      // sequence data would fabricate missing events out of nothing.
+      final digest = buildDigest([
+        LogEvent(
+          time: DateTime.utc(2026),
+          level: LogLevel.info,
+          message: 'm',
+          logger: 'app',
+          sessionId: 's',
+          sequence: 0,
+        ),
+      ]);
+
+      expect(digest.missingEvents, 0);
+    });
+
+    test('the JSON output carries the same accounting', () {
+      final digest = buildDigest([for (var i = 5; i <= 10; i++) at(i)]);
+      final json = digest.toJson();
+
+      expect((json['completeness']! as Map)['missingEvents'], 4);
+    });
+
+    test('tracked sessions are bounded', () {
+      final builder = DigestBuilder();
+      for (var s = 0; s < DigestBuilder.maxTrackedSessions + 20; s++) {
+        builder.addEvent(at(1, session: 'session-$s'));
+      }
+
+      expect(builder.build().coverage.length, DigestBuilder.maxTrackedSessions);
+    });
+  });
 }
 
 /// Turns an integer into letters, so [normalizeMessage] cannot collapse the

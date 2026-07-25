@@ -226,12 +226,49 @@ void main() {
       final legend = schemaLegend();
       const expectedKeys = [
         'ts', 'lvl', 'msg', 'lg', 'ses', 'tr', 'sp', 'psp', 'seq', 'dur',
-        'tags', 'ctx', 'err', 'chain', 'redacted', //
+        'tags', 'ctx', 'err', 'chain', //
       ];
       for (final key in expectedKeys) {
         expect(legend.containsKey(key), isTrue,
             reason: 'missing legend entry for "$key"');
       }
+    });
+
+    test('a fully populated event emits no key the legend omits', () {
+      // The file's claim is that it explains itself. Enumerating expected
+      // keys by hand (above) cannot catch a *new* key added to toJson, so
+      // this checks the real direction: everything emitted is documented.
+      final event = LogEvent(
+        time: DateTime.utc(2026),
+        level: LogLevel.error,
+        message: 'm',
+        logger: 'app',
+        sessionId: 's',
+        sequence: 1,
+        traceId: 't',
+        spanId: 'sp',
+        parentSpanId: 'psp',
+        durationMs: 5,
+        tags: const ['x'],
+        context: const {'k': 1},
+        error: ErrorInfo(type: 'E', message: 'm', fingerprint: 'f'),
+        chain: const [
+          {'dt': -1, 'lvl': 'info', 'msg': 'before'},
+        ],
+      );
+
+      expect(event.toJson().keys, everyElement(isIn(schemaLegend().keys)));
+    });
+
+    test('non-key conventions are marked so they cannot be read as fields', () {
+      // Redaction is a convention applying to *any* field, not a key. Listed
+      // bare among the keys, a reader could go looking for an event field
+      // called `redacted` that never exists.
+      final conventions =
+          schemaLegend().keys.where((k) => k.startsWith('_convention:'));
+
+      expect(conventions, contains('_convention:redacted'));
+      expect(schemaLegend().containsKey('redacted'), isFalse);
     });
 
     test('aiLogSchemaVersion is a positive integer', () {

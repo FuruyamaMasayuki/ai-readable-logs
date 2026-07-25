@@ -432,6 +432,25 @@ dart run ailog:ailog_digest .ailog/app.jsonl
 Ranks errors and prints, per group, the representative frames and the causal
 chain. Output size is bounded with `--max-groups`.
 
+### Knowing when the digest is incomplete
+
+Rotation deletes the oldest file by design, so a digest built from what
+survives is a *partial* view — and silently reporting `Events: 63686` for a
+run that emitted 100,000 invites exactly the wrong conclusion. `seq` makes
+the gap computable, so the digest says so itself:
+
+```text
+- Events: 63686
+- **Incomplete: at least 36314 more events existed and are not in this digest.**
+  Older rotations were deleted, or not every file was supplied. Treat the
+  counts below as lower bounds, and do not compute rates from them.
+```
+
+`seq` is monotonic from 1 within one session, so the arithmetic is exact
+rather than heuristic: a lowest `seq` of 36315 means 36,314 events preceded
+it. Gaps in the middle — a file you forgot to pass — are counted too.
+Available programmatically as `digest.missingEvents`.
+
 ### Distinct failures vs. log events
 
 Ranking is by **distinct failures**, not raw log lines — those differ more

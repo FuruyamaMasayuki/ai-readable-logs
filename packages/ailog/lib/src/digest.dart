@@ -185,6 +185,59 @@ class MessageShape {
       };
 }
 
+/// What one writer's `seq` numbers say about whether events are missing.
+///
+/// `seq` is a monotonic counter starting at 1 within one session, so the
+/// arithmetic is exact: a session whose lowest `seq` is 36315 lost 36314
+/// events before that point, and one where `max - min + 1` exceeds the
+/// number of events present has gaps in the middle.
+///
+/// This matters because the most common way to lose events is completely
+/// silent. Size-based rotation with `maxFiles` deletes the oldest file by
+/// design; a digest built from what survives reported "Events: 63686" for a
+/// run that emitted 100000, with nothing to suggest it was a partial view.
+/// A reader — human or model — would take that as the whole story and
+/// reason about rates and totals from it.
+class SequenceCoverage {
+  SequenceCoverage(this.sessionId);
+
+  final String sessionId;
+  int? lowest;
+  int? highest;
+  int present = 0;
+
+  void add(int seq) {
+    present++;
+    if (lowest == null || seq < lowest!) lowest = seq;
+    if (highest == null || seq > highest!) highest = seq;
+  }
+
+  /// Events emitted before the earliest one here. `seq` starts at 1, so a
+  /// lowest of 1 means nothing is missing from the front.
+  int get missingBefore => (lowest ?? 1) - 1;
+
+  /// Events absent from within the range covered — gaps rather than a
+  /// truncated front. Usually means a file was not supplied, or writes were
+  /// dropped.
+  int get missingWithin {
+    final low = lowest, high = highest;
+    if (low == null || high == null) return 0;
+    final expected = high - low + 1;
+    return expected > present ? expected - present : 0;
+  }
+
+  int get missingTotal => missingBefore + missingWithin;
+
+  Map<String, Object?> toJson() => {
+        'session': sessionId,
+        'present': present,
+        'lowestSeq': lowest,
+        'highestSeq': highest,
+        'missingBefore': missingBefore,
+        'missingWithin': missingWithin,
+      };
+}
+
 /// Range of a numeric context field across the whole log.
 ///
 /// A counter that climbs to `max=22` against a configured ceiling of 20 is a
@@ -222,6 +275,7 @@ class Digest {
     this.numericFields = const [],
     this.unshapedEvents = 0,
     this.breadcrumbOnlyLoggers = const {},
+    this.coverage = const [],
   });
 
   final int totalEvents;
@@ -249,6 +303,17 @@ class Digest {
   /// chain while the summary reports no debug events concludes — reasonably
   /// — that the digest contradicts itself, and starts distrusting all of it.
   final Set<String> breadcrumbOnlyLoggers;
+
+  /// Per-session `seq` accounting — see [SequenceCoverage]. Use
+  /// [missingEvents] for the total.
+  final List<SequenceCoverage> coverage;
+
+  /// Events known to be absent from this digest, across all sessions.
+  ///
+  /// Non-zero means what you are reading is a *partial* view: rotation
+  /// deleted older files, or not every file was supplied. Totals and rates
+  /// computed from [totalEvents] are wrong by at least this much.
+  int get missingEvents => coverage.fold(0, (sum, c) => sum + c.missingTotal);
 
   /// Sorted by [ErrorGroup.incidents] descending — distinct failures, not raw
   /// log lines. See [ErrorGroup] for why those differ.
@@ -281,6 +346,11 @@ class Digest {
           'messageShapes': [for (final s in messageShapes) s.toJson()],
         if (numericFields.isNotEmpty)
           'numericFields': [for (final f in numericFields) f.toJson()],
+        if (missingEvents > 0)
+          'completeness': {
+            'missingEvents': missingEvents,
+            'bySession': [for (final c in coverage) c.toJson()],
+          },
       };
 
   /// Renders the digest as Markdown, the form most useful when pasting
@@ -291,6 +361,15 @@ class Digest {
     buffer.writeln();
     buffer.writeln('- Events: $totalEvents'
         '${droppedEvents > 0 ? ' ($droppedEvents unparsed)' : ''}');
+    if (missingEvents > 0) {
+      // Stated immediately after the count it qualifies, because the count
+      // is what a reader anchors every rate and total to. Silence here made
+      // a truncated 63,686-event view read as a complete 100,000-event run.
+      buffer.writeln('- **Incomplete: at least $missingEvents more events '
+          'existed and are not in this digest.** Older rotations were '
+          'deleted, or not every file was supplied. Treat the counts below '
+          'as lower bounds, and do not compute rates from them.');
+    }
     if (timeRange.$1 != null && timeRange.$2 != null) {
       buffer.writeln('- Range: ${timeRange.$1!.toUtc().toIso8601String()} → '
           '${timeRange.$2!.toUtc().toIso8601String()}');
@@ -512,7 +591,13 @@ class DigestBuilder {
   final Map<String, MessageShape> _shapes = {};
   final Map<String, NumericField> _numeric = {};
   final Set<String> _breadcrumbLoggers = {};
+  final Map<String, SequenceCoverage> _coverage = {};
   int _unshapedEvents = 0;
+
+  /// Sessions tracked for completeness. A file merging more writers than this
+  /// is pathological; past the bound the report simply covers fewer of them
+  /// rather than growing without limit.
+  static const int maxTrackedSessions = 64;
 
   void addEvent(LogEvent event) {
     _total++;
@@ -522,6 +607,16 @@ class DigestBuilder {
     _to = _to == null || event.time.isAfter(_to!) ? event.time : _to;
     _recordShape(event);
     _recordNumericContext(event);
+    // seq is monotonic within one session only, so completeness is tracked
+    // per session. A seq of 0 means the field was absent (a hand-written or
+    // foreign line); counting it would invent a gap that isn't there.
+    if (event.sequence >= 1 && event.sessionId.isNotEmpty) {
+      final coverage = _coverage[event.sessionId] ??
+          (_coverage.length < maxTrackedSessions
+              ? _coverage[event.sessionId] = SequenceCoverage(event.sessionId)
+              : null);
+      coverage?.add(event.sequence);
+    }
     for (final crumb in event.chain) {
       final logger = crumb['lg'];
       if (logger is String) _breadcrumbLoggers.add(logger);
@@ -616,6 +711,8 @@ class DigestBuilder {
       droppedEvents: _dropped,
       messageShapes: shapes,
       numericFields: numeric,
+      coverage: (_coverage.values.toList()
+        ..sort((a, b) => b.present.compareTo(a.present))),
       unshapedEvents: _unshapedEvents,
       breadcrumbOnlyLoggers: _breadcrumbLoggers.difference(_loggers),
     );

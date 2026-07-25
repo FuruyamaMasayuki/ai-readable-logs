@@ -20,7 +20,13 @@ export 'src/console_formatter.dart' show ConsoleFormatter;
 export 'src/context.dart'
     show LogScope, currentScope, runWithScope, runWithScopeGuarded;
 export 'src/digest.dart'
-    show Digest, DigestBuilder, ErrorGroup, MessageShape, NumericField;
+    show
+        Digest,
+        DigestBuilder,
+        ErrorGroup,
+        MessageShape,
+        NumericField,
+        SequenceCoverage;
 export 'src/export.dart'
     show LogFilter, LogSelection, buildDigest, digestFromJsonl;
 export 'src/ids.dart' show IdGenerator, SequenceCounter, fnv1a64Hex, shortHash;

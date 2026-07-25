@@ -14,6 +14,13 @@
 
 ### Added
 
+- **The digest now reports its own incompleteness.** Size-based rotation
+  deletes older files by design, so a digest built from the survivors is a
+  partial view — measured: 100,000 events written, 63,686 reported, nothing
+  saying so. `seq` makes the loss exactly computable (lowest seq 36315 → 36,314
+  events missing), and it is now stated directly under the event count, in
+  both Markdown and JSON, with `digest.missingEvents` for programmatic use.
+  Gaps in the middle (a file not supplied) are counted too.
 - **`ailog_digest --format pretty`** — not a digest, a replay: re-renders a
   recovered `.jsonl` file exactly the way `ConsoleSink` shows events live.
   Closes the one gap in the human-readability story: the file itself is
@@ -94,6 +101,12 @@
   code — confidently wrong, which is the one outcome the guard exists to
   prevent. It now tests whether a frame resolves to a Dart source position
   at all.
+- The schema legend listed `redacted` among the event keys, though it is a
+  *convention* applying to any field rather than a key — a reader could go
+  looking for an event field that never exists. It is now
+  `_convention:redacted`, and a test asserts every key `toJson` can emit is
+  documented (the previous test enumerated keys by hand and so could not
+  catch a newly added one).
 - **A value whose `toString()` throws crashed the host program.** Passing a
   domain object with a buggy override, an uninitialized `late` field, or a
   throwing getter in `context:` — or throwing one — propagated straight out

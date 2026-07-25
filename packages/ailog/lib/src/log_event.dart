@@ -34,8 +34,13 @@ Map<String, Object?> schemaLegend() => {
           'fr=stack frames (app frames first), cause=nested cause',
       'chain': 'causal chain: events that preceded this error in the same '
           'trace. dt=ms before the error (negative)',
-      'redacted': 'values shown as [redacted:kind#hash]; equal hash means '
-          'equal original value within this file',
+      // Not a key — a convention, described here because a reader meeting
+      // `[redacted:email#892c8bf7]` for the first time needs to know the
+      // hash is stable. Prefixed so it cannot be mistaken for a field to
+      // look up on an event.
+      '_convention:redacted':
+          'masked values appear as [redacted:kind#hash] in any field; equal '
+              'hash means equal original value within this file',
     };
 
 /// Structured description of a thrown object.
