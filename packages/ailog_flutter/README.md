@@ -216,6 +216,50 @@ implementation with real reference values in
 > than build-verified. Confirm it compiles and behaves on a real device or
 > simulator before shipping.
 
+## Getting the log off a real device
+
+`dart run ailog:ailog_digest .ailog/app.jsonl` runs on **your development
+machine** and needs a path it can read. On a real device, `app.jsonl` lives
+inside the app's private storage — there is no shell on your laptop that can
+just open that path. Three ways to actually get at it, in order of how much
+tooling they need:
+
+1. **No tooling at all: read it from inside the app.** Keep a `MemorySink`
+   alongside the file sink, and put its output in a debug screen or behind
+   a hidden gesture:
+   ```dart
+   final recent = MemorySink(capacity: 2000);
+   final logger = Logger.create(sink: MultiSink([fileSink, recent]));
+   // ...
+   Text(recent.toMarkdown());                    // or toJsonl()
+   Clipboard.setData(ClipboardData(text: recent.toMarkdown()));
+   ```
+   Works identically on a real device, a simulator, or the web. Nothing ever
+   leaves the app until you decide to copy it somewhere.
+
+2. **Send it off the device: the share sheet.** See
+   ["Sharing logs with a 'send logs' button"](#sharing-logs-with-a-send-logs-button)
+   below — AirDrop, Slack, email, Files, whatever the platform offers. Once
+   you (or a tester) sends it to you, it's an ordinary file on your machine
+   and `ailog_digest` works exactly as documented above.
+
+3. **Pull it with device tooling**, if you have the device connected. The
+   exact path is whatever you passed to `JsonlFileSink(path: ...)` — usually
+   somewhere under `getApplicationSupportDirectory()` or
+   `getApplicationDocumentsDirectory()` (`sink.path` on the `JsonlFileSink`
+   itself always has the true answer):
+   - **Android:** `adb pull` the path (debug builds; on a release build
+     without `run-as` access, `adb pull` a directory you can't reach
+     directly may not work — fall back to option 1 or 2).
+   - **iOS:** Xcode → Window → Devices and Simulators → select the device →
+     your app → the gear icon → **Download Container...**, then find the
+     file inside the extracted `.xcappdata` bundle.
+
+For anyone who isn't the developer holding a debugger — a QA tester, a
+support ticket, a beta user — option 2 is the only one that doesn't require
+them to have Xcode or `adb` installed, which is why it's worth wiring up
+even for an internal build.
+
 ## Sharing logs with a "send logs" button
 
 [`log_vault`](https://pub.dev/packages/log_vault) is a separate package (by
