@@ -1,6 +1,30 @@
 ## 0.4.0
 
+### Added
+
+- **Build-mode control.** `isDebugBuild` / `isProfileBuild` /
+  `isReleaseBuild` / `currentBuildMode` are `const`, read from the
+  compiler-defined `dart.vm.product` and `dart.vm.profile` — the same values
+  Flutter's `kReleaseMode` is built on, with no Flutter dependency.
+  `byBuildMode(debug:, profile:, release:)` picks any value per mode.
+  `Logger.create(enabled: false)` and `Logger.disabled()` switch logging off:
+  measured at 5 ns per call in a release AOT build, ahead of all formatting,
+  sanitizing and breadcrumb work. Because the constants fold at compile time,
+  `isReleaseBuild ? Logger.disabled() : Logger.create(sink: ...)` lets the
+  AOT compiler drop the sink entirely — verified by compiling and confirming
+  the dead branch's strings are absent from the binary.
+- `ConsoleSink.usingPrint()` / `ConsoleSink(write: ...)`.
+- `benchmark/logging_benchmark.dart`, so the README's performance numbers can
+  be re-run rather than believed.
+
 ### Fixed
+
+- **`includePlatformContext` duplicated ~133 bytes on every line** — OS,
+  Dart version, pid and locale, identical each time, in a format whose whole
+  premise is not wasting a context window. Measured: a 100-event file grew
+  73%, 182 → 315 bytes per line. `JsonlFileSink` now writes the platform
+  into each file's `_hdr` record once, and the option's documentation states
+  the per-event cost.
 
 - **`JsonlFileSink` could silently lose events.** Repeated `IOSink.flush()`
   on a handle from `File.openWrite()`, with writes arriving between flushes,

@@ -431,4 +431,33 @@ void main() {
       expect(sink.path, path);
     });
   });
+
+  group('schema header', () {
+    test('carries the platform once, not on every event', () async {
+      // Platform facts are invariant, so per-event they are pure waste: on
+      // a 100-event file, merging them in grew it 73%. The header is where
+      // they belong.
+      final dir = Directory.systemTemp.createTempSync('ailog_hdr_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = '${dir.path}/app.jsonl';
+
+      final sink = JsonlFileSink(path: path);
+      sink.add(_event('one'));
+      sink.add(_event('two'));
+      await sink.close();
+
+      final lines = File(path).readAsLinesSync();
+      final header = jsonDecode(lines.first) as Map<String, Object?>;
+
+      expect(header['_hdr'], true);
+      expect(header['platform'], isA<Map<String, Object?>>());
+
+      for (final line in lines.skip(1)) {
+        final event = jsonDecode(line) as Map<String, Object?>;
+        final context = event['ctx'] as Map<String, Object?>? ?? const {};
+        expect(context.containsKey('os'), isFalse,
+            reason: 'invariant facts must not be repeated per event');
+      }
+    });
+  });
 }

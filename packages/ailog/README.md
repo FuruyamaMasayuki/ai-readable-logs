@@ -31,6 +31,25 @@ reading the whole file just to reconstruct what happened before an error.
   into a frequency-ranked Markdown/JSON summary that fits in a context
   window.
 
+## Contents
+
+**Getting started** — [Install](#install) · [Usage](#usage) ·
+[Cheat sheet](#cheat-sheet) · [Examples](#examples)
+
+**Writing logs** — [Levels](#levels) ·
+[Traces and spans](#traces-and-spans) ·
+[Checkpoints](#checkpoints--logging-where-not-what) ·
+[Capturing `print()`](#capturing-plain-print-calls) ·
+[Per-subsystem loggers](#per-subsystem-loggers) ·
+[Build modes](#debug--profile--release-builds)
+
+**Reading logs** — [AI digest](#ai-digest) ·
+[Filtering for an AI](#sending-logs-to-an-ai-without-sending-junk) ·
+[Getting a string](#getting-the-log-as-a-string)
+
+**Operational** — [Redaction](#redaction) · [Sinks](#sinks) ·
+[Performance](#performance) · [Limitations](#limitations)
+
 ## Install
 
 ```sh
@@ -100,7 +119,187 @@ One emitted line, formatted for readability:
 ```
 
 Every file starts with an `_hdr` record documenting what each key means, so
-an AI can interpret the format with no external documentation.
+an AI can interpret the format with no external documentation. It also
+carries the platform (OS, Dart version, pid, locale) — once, because the
+answer is the same on every line. `Logger.create`'s `includePlatformContext`
+merges those into each event instead, and measurably should not be your
+default: on a 100-event file it grew the output 73%, from 182 to 315 bytes
+per line.
+
+## Cheat sheet
+
+Everything you are likely to reach for, in one place.
+
+### Creating a logger
+
+```dart
+Logger.create(sink: sink)                     // root logger
+Logger.create(sink: sink, name: 'api')        // named
+logger.child('db')                            // subsystem, shares session
+Logger.disabled()                             // no-op; see Build modes
+Logger.forTesting()                           // MemorySink, fixed session id
+```
+
+### Levels
+
+```dart
+logger.trace('...');    logger.debug('...');    logger.info('...');
+logger.warn('...');     logger.errorMessage('...');
+logger.error(e, stackTrace, message: '...');   // a caught exception
+logger.fatal(e, stackTrace);                   // same, at fatal
+logger.log(LogLevel.info, '...');              // level chosen at runtime
+```
+
+All of them take `context:` (a `Map<String, Object?>`) and `tags:`
+(a `List<String>`). `error`/`fatal` take a thrown object and its stack, and
+attach a fingerprint, normalized frames and the causal chain automatically.
+
+`errorMessage` exists because `error` requires a thrown object — use it when
+something failed but nothing was thrown:
+
+```dart
+logger.errorMessage('payment rejected', context: {'code': 'insufficient'});
+```
+
+### Traces and spans
+
+```dart
+// One trace = one logical operation (a request, a tap, a job).
+final scope = logger.startTrace(context: {'requestId': id});
+await runWithScope(scope, () async { ... });
+
+// A span = a measured step inside it. Duration and failure are automatic,
+// and the exception still propagates.
+await logger.span('charge_card', (span) async => gateway.charge());
+logger.spanSync('parse', (span) => decode(bytes));
+
+// Manual control when the work isn't a single callback.
+final span = logger.startSpan('upload');
+...
+span.end();                       // or span.fail(error, stackTrace)
+```
+
+IDs propagate through `Zone`, so anything logged inside — including after an
+`await`, inside a callback, or from a nested function — inherits them
+without being passed a parameter.
+
+### Guarding expensive context
+
+```dart
+if (logger.isRecorded(LogLevel.debug)) {      // includes breadcrumbs
+  logger.debug('state', context: {'graph': graph.toDebugMap()});
+}
+```
+
+`isEnabled(level)` asks only whether it reaches the sink; `isRecorded` also
+counts breadcrumb retention, and is the honest question when the cost you
+are avoiding is *building the argument*.
+
+### Reading it back
+
+```dart
+buildDigest(events)                     // in-memory events → Digest
+digestFromJsonl(text)                   // JSONL text → Digest
+digest.toMarkdown()                     // for a chat with an AI
+digest.toJson()                         // for a dashboard
+
+memorySink.toJsonl()                    // the wire format, as a String
+memorySink.toMarkdown()                 // digest only
+memorySink.export(LogFilter.forAi).toReport()   // digest + kept events
+```
+
+### Lifecycle
+
+```dart
+await logger.flush();     // push buffered lines to disk — before exit,
+                          // before sharing, before reading the file back
+await logger.close();     // flush, then release the sink
+```
+
+A `JsonlFileSink` writes error-level events out immediately by default
+(`flushOnErrorLevel`), because the buffered line you most regret losing is
+the one explaining why the process died.
+
+## Debug / profile / release builds
+
+`isDebugBuild`, `isProfileBuild`, `isReleaseBuild` and `currentBuildMode` are
+`const`, read from the compiler-defined `dart.vm.product` / `dart.vm.profile`
+— the same values `package:flutter/foundation.dart`'s `kReleaseMode` is built
+on. This package stays dependency-free and behaves identically inside a
+Flutter app.
+
+### Quieter in release (recommended)
+
+```dart
+Logger.create(
+  sink: sink,
+  minimumLevel: byBuildMode(
+    debug: LogLevel.trace,    // everything while developing
+    profile: LogLevel.info,   // don't distort what you're measuring
+    release: LogLevel.info,   // keep the evidence, drop the noise
+  ),
+  causalChainLength: byBuildMode(debug: 20, release: 8),
+);
+```
+
+`byBuildMode` works for any value, not just levels. `profile` defaults to
+the `release` value, because a profile build is a release-shaped build being
+measured.
+
+### Off in release, with the sink compiled out
+
+```dart
+final logger = isReleaseBuild
+    ? Logger.disabled()
+    : Logger.create(sink: JsonlFileSink(path: logPath));
+```
+
+Because the condition is `const`, the AOT compiler folds it and drops the
+dead branch. **Verified**, not assumed: compiling this with
+`dart compile exe` and searching the binary shows the unused branch's log
+path string is absent, while a control string in live code is present.
+
+### Off at runtime
+
+```dart
+Logger.create(sink: sink, enabled: userOptedIntoDiagnostics);
+```
+
+Use this when the decision isn't a build-mode constant — a remote flag, a
+settings toggle, an opt-in. It cannot eliminate anything: the sink is still
+constructed and the check is a real branch.
+
+### What a disabled call actually costs
+
+Measured by [`example/build_modes_example.dart`](example/build_modes_example.dart)
+over 200,000 calls, with a context map:
+
+| Build | Per call on a disabled logger |
+|---|---|
+| release (`dart compile exe`) | **2 ns** |
+| debug (JIT) | 41 ns |
+
+That check sits ahead of all formatting, sanitizing, breadcrumb recording
+and stack capture. Worth knowing before you decide: **"release builds should
+be fast" is usually not a good enough reason to log nothing in
+production** — and a release build that logs nothing cannot describe the
+failures users actually hit, which is what this package exists for. Turning
+it off entirely is the right call when the log would hold data you are not
+willing to write to a user's device, or when the build ships somewhere you
+could never retrieve a file from.
+
+`enabled: false` also suppresses breadcrumbs, so nothing is retained for a
+causal chain either — and `isEnabled`/`isRecorded` both report `false`, so
+guarded expensive context is skipped too:
+
+```dart
+if (logger.isRecorded(LogLevel.debug)) {          // false when disabled
+  logger.debug('state', context: {'graph': graph.toDebugMap()});
+}
+```
+
+Spans and traces still run their bodies when logging is off — disabling the
+log must never disable the program.
 
 ## Checkpoints — logging *where*, not *what*
 
@@ -361,10 +560,62 @@ again, so a `print`-based sink inside a captured zone cannot loop.
 
 ## Examples
 
-- [`example/main.dart`](example/main.dart) — minimal quick start
-- [`example/advanced_example.dart`](example/advanced_example.dart) — child
-  loggers, dev/prod sink split, custom redaction rules, and using
-  `DigestBuilder` directly
+All are runnable with `dart run example/<file>`.
+
+| Example | What it shows |
+|---|---|
+| [`main.dart`](example/main.dart) | Minimal quick start: write a log with a redacted secret and a grouped error, then read it back through the digest |
+| [`walkthrough_example.dart`](example/walkthrough_example.dart) | **Start here.** A guided tour in the order you meet things: sinks, subsystem loggers, traces, spans, checkpoints, redaction, then the digest and the filtered report side by side |
+| [`advanced_example.dart`](example/advanced_example.dart) | Child loggers, dev/prod sink split, custom redaction rules, `DigestBuilder` used directly |
+| [`ai_report_example.dart`](example/ai_report_example.dart) | A realistic connection-pool leak, then the three output forms — digest only, digest + events, raw JSONL — with their sizes side by side |
+| [`build_modes_example.dart`](example/build_modes_example.dart) | The three ways to restrict logging per build mode, and a measurement of what a disabled call costs |
+
+## Performance
+
+Numbers below are from
+[`benchmark/logging_benchmark.dart`](benchmark/logging_benchmark.dart),
+compiled AOT on one ordinary Linux machine. **Run it yourself** before
+trusting any of it for your context — that is what it is committed for:
+
+```sh
+dart compile exe benchmark/logging_benchmark.dart -o /tmp/bench && /tmp/bench
+```
+
+| Operation | Cost |
+|---|---|
+| `info`, no context | 3.03 µs |
+| `info` with 6 context fields | 8.72 µs |
+| `error` with a stack trace | 68.7 µs |
+| `LogEvent.toJson` (per line written) | 1.01 µs |
+| `debug` filtered out by `minimumLevel`¹ | **6 ns** |
+| `debug` filtered, but retained as a breadcrumb² | 495 ns |
+| Any call on a disabled logger | **5 ns** |
+
+¹ with `causalChainLength: 0`, i.e. chains off.
+² the default configuration: `breadcrumbLevel` below `minimumLevel`, so the
+event is kept for a future causal chain even though it is not written.
+
+What to take from this:
+
+- **A filtered-out call is free.** 6 ns means you can leave `trace`/`debug`
+  calls in hot paths and control them with `minimumLevel`. The check happens
+  before anything is built, sanitized, or handed to a sink.
+- **Causal chains are not free, but they are cheap.** The gap between rows 5
+  and 6 — 6 ns vs 495 ns — is what breadcrumb retention costs. If a hot path
+  makes that matter, raise `breadcrumbLevel` to equal `minimumLevel`
+  (buffer only what you emit) or set `causalChainLength: 0`.
+- **Errors are the expensive case**, at ~69 µs, dominated by stack-trace
+  parsing and fingerprinting. That is fine for errors — until an error
+  storm, which is what `RateLimitSink` is for. The stack is parsed *once*
+  and shared between the displayed frames and the fingerprint; parsing twice
+  was over half this cost before it was fixed.
+
+Bounds that keep a bad day from becoming a worse one: context depth, string
+length and collection size are capped (`SanitizerLimits`); the causal buffer
+bounds both breadcrumbs per trace and traces tracked at once;
+`RateLimitSink` collapses a repeating error into a burst plus a suppressed
+count; and `JsonlFileSink` rotates by size and reports dropped events
+through `droppedEvents` / `onError` rather than failing silently.
 
 ## Using it with Flutter
 

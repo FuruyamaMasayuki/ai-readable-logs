@@ -59,6 +59,47 @@ void main() {
 `body` — including from async gaps and framework callbacks — shares one
 trace, and anything that escapes uncaught is recorded as `fatal`.
 
+### Capturing plain `print()`
+
+```dart
+runAppGuarded(
+  logger,
+  () { WidgetsFlutterBinding.ensureInitialized(); runApp(const MyApp()); },
+  capturePrint: true,                   // print() → the JSONL file too
+  forwardPrintsToConsole: true,         // and still visible in the console
+);
+```
+
+Un-migrated code and third-party packages speak `print`, and none of it
+reaches the log file otherwise. Captured lines are tagged `print` and carry
+the ambient trace like any other event. Set `forwardPrintsToConsole: false`
+if you attach a `ConsoleSink`, or each line appears twice.
+
+### Console output on a device
+
+`ConsoleSink` writes to `stdout` by default, which on a Flutter device
+reaches neither logcat nor the unified log — the lines simply go nowhere.
+Use `ConsoleSink.usingPrint()` (or `ConsoleSink(write: debugPrint)`) in a
+Flutter app.
+
+### Debug / profile / release
+
+`ailog` exposes `isDebugBuild` / `isProfileBuild` / `isReleaseBuild` and
+`byBuildMode(...)` without depending on Flutter — they read the same
+`dart.vm.product` / `dart.vm.profile` constants `kReleaseMode` does:
+
+```dart
+final logger = Logger.create(
+  sink: sink,
+  minimumLevel: byBuildMode(debug: LogLevel.trace, release: LogLevel.info),
+);
+```
+
+See [ailog's README](../ailog/README.md#debug--profile--release-builds) for
+switching logging off entirely, what it costs, and why keeping it on in
+release is usually the better call for a package built around post-mortem
+analysis.
+
 ## Navigation breadcrumbs
 
 ```dart

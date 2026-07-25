@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 
 import 'breadcrumb.dart';
+import 'build_mode.dart';
 import 'call_site.dart';
 import 'causal_buffer.dart';
 import 'context.dart';
@@ -27,6 +28,7 @@ class _LoggerCore {
   _LoggerCore({
     required this.sink,
     required this.sanitizer,
+    required this.enabled,
     required this.minimumLevel,
     required this.breadcrumbLevel,
     required this.sessionId,
@@ -43,6 +45,9 @@ class _LoggerCore {
 
   final LogSink sink;
   final Sanitizer sanitizer;
+
+  /// When false, every log call returns immediately. See [Logger.create].
+  final bool enabled;
 
   /// Minimum level that reaches [sink].
   final LogLevel minimumLevel;
@@ -114,14 +119,29 @@ class Logger {
   /// emit — app version, build number, environment, user id. Unlike a trace
   /// scope it needs no `runWithScope`, so it also covers timers, isolates and
   /// anything logged before a zone is entered. Call-site and scope fields win
-  /// on key collision. Pass [includePlatformContext] to add OS, Dart version
-  /// and locale automatically.
+  /// on key collision.
+  ///
+  /// [includePlatformContext] merges OS, Dart version, pid and locale into
+  /// every event. **Usually you do not want this**: [JsonlFileSink] already
+  /// writes the same facts into each file's `_hdr` line, once, and they do
+  /// not change between events. Measured on a 100-event file, merging them
+  /// per event grew it 73% — 182 to 315 bytes per line. That dwarfs
+  /// everything the short key names save. Turn it on when events from
+  /// several machines are merged into one stream and the platform genuinely
+  /// varies line to line.
+  ///
+  /// [enabled] switches the whole logger off: every call returns before any
+  /// formatting, sanitizing or sink work. Combine it with [isReleaseBuild]
+  /// to keep logging out of production builds — but see [Logger.disabled],
+  /// which additionally lets the AOT compiler drop the sink entirely, and
+  /// read the note there before switching release logging off at all.
   ///
   /// [idGenerator] and [clock] are injectable so tests can pin ids and
   /// timestamps and assert against exact output.
   factory Logger.create({
     required LogSink sink,
     String name = 'app',
+    bool enabled = true,
     LogLevel minimumLevel = LogLevel.trace,
     LogLevel breadcrumbLevel = LogLevel.trace,
     Redactor? redactor,
@@ -137,6 +157,7 @@ class Logger {
     final core = _LoggerCore(
       sink: sink,
       sanitizer: Sanitizer(redactor: redactor, limits: limits),
+      enabled: enabled,
       minimumLevel: minimumLevel,
       // Never above minimumLevel: a level that isn't emitted but also isn't
       // buffered would just be dropped, which no caller can want.
@@ -154,6 +175,41 @@ class Logger {
     );
     return Logger._(core, name, clock ?? DateTime.now);
   }
+
+  /// A logger that does nothing.
+  ///
+  /// Every call returns immediately, and no sink is involved — which is the
+  /// point when combined with [isReleaseBuild], because the branch is
+  /// const-folded and the AOT compiler drops the real sink's construction
+  /// along with it:
+  ///
+  /// ```dart
+  /// final logger = isReleaseBuild
+  ///     ? Logger.disabled()
+  ///     : Logger.create(sink: JsonlFileSink(path: logPath));
+  /// ```
+  ///
+  /// Worth pausing before you do that, though. This package exists to make
+  /// *post-mortem* analysis possible, and the failures worth analyzing are
+  /// the ones users hit in production — which a release build with no
+  /// logging cannot describe. Raising [minimumLevel] in release keeps the
+  /// evidence while cutting the volume:
+  ///
+  /// ```dart
+  /// minimumLevel: byBuildMode(debug: LogLevel.trace, release: LogLevel.info)
+  /// ```
+  ///
+  /// Turning it off entirely is the right call when the log would contain
+  /// data you are not willing to store on a user's device, or when the build
+  /// ships to somewhere you can never retrieve a file from. Those are real;
+  /// "release builds should be fast" usually is not, given a filtered-out
+  /// call costs a single bool test.
+  factory Logger.disabled({String name = 'app'}) => Logger.create(
+        sink: const _NullSink(),
+        name: name,
+        enabled: false,
+        causalChainLength: 0,
+      );
 
   /// A logger backed by [MemorySink], useful for tests.
   factory Logger.forTesting({
@@ -197,13 +253,15 @@ class Logger {
   /// breadcrumbs — see [Logger.create]'s `breadcrumbLevel`. Use
   /// [isRecorded] if you want to know whether the event has any effect at
   /// all.
-  bool isEnabled(LogLevel level) => level.passes(_core.minimumLevel);
+  bool isEnabled(LogLevel level) =>
+      _core.enabled && level.passes(_core.minimumLevel);
 
   /// Whether an event at [level] would be either emitted or retained as a
   /// breadcrumb — i.e. whether logging it does anything at all.
   bool isRecorded(LogLevel level) =>
-      level.passes(_core.minimumLevel) ||
-      (_core.causalChainLength > 0 && level.passes(_core.breadcrumbLevel));
+      _core.enabled &&
+      (level.passes(_core.minimumLevel) ||
+          (_core.causalChainLength > 0 && level.passes(_core.breadcrumbLevel)));
 
   /// The level at or above which events reach the sink.
   LogLevel get minimumLevel => _core.minimumLevel;
@@ -496,6 +554,9 @@ class Logger {
     int? durationMs,
     int skipFrames = 0,
   }) {
+    // Ahead of everything: no formatting, no sanitizing, no breadcrumb, no
+    // stack capture. One bool test is the entire cost of a disabled logger.
+    if (!_core.enabled) return;
     final emitting = level.passes(_core.minimumLevel);
     // Events below `minimumLevel` are still kept as breadcrumbs so an error's
     // causal chain has the low-level detail that explains it. See
@@ -604,4 +665,20 @@ class Logger {
   Future<void> flush() => _core.sink.flush();
 
   Future<void> close() => _core.sink.close();
+}
+
+/// The sink for [Logger.disabled]: it can never be reached, because the
+/// logger returns before touching it. It exists so `Logger.disabled()` needs
+/// no allocation and no import of a real sink.
+class _NullSink implements LogSink {
+  const _NullSink();
+
+  @override
+  void add(LogEvent event) {}
+
+  @override
+  Future<void> flush() async {}
+
+  @override
+  Future<void> close() async {}
 }

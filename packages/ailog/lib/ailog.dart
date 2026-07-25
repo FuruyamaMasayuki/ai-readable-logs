@@ -6,6 +6,14 @@
 library ailog;
 
 export 'src/breadcrumb.dart' show Breadcrumb;
+export 'src/build_mode.dart'
+    show
+        BuildMode,
+        byBuildMode,
+        currentBuildMode,
+        isDebugBuild,
+        isProfileBuild,
+        isReleaseBuild;
 export 'src/call_site.dart' show CallSite, captureCallSite;
 export 'src/causal_buffer.dart' show CausalBuffer;
 export 'src/console_formatter.dart' show ConsoleFormatter;

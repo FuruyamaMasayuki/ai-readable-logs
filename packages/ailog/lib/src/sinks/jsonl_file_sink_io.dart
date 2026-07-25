@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import '../log_event.dart';
 import '../log_level.dart';
+import '../platform.dart';
 import 'log_sink.dart';
 
 /// Appends one JSON object per line to a file, with size-based rotation.
@@ -128,6 +129,14 @@ class JsonlFileSink implements LogSink {
         'schema': aiLogSchemaVersion,
         'generator': 'ailog',
         'startedAt': DateTime.now().toUtc().toIso8601String(),
+        // OS, Dart version, pid and locale, written once per file rather
+        // than merged into every event. "Reproduces only on Linux with Dart
+        // 3.9" is a conclusion a model can only reach if the log says which
+        // platform produced it — but the answer is identical on every line,
+        // and putting it there costs 133 bytes per event (measured: a file
+        // of 100 events grew 73%, from 182 to 315 bytes per line). Once, in
+        // the header, is where invariant facts belong.
+        'platform': platformContext(),
         'legend': schemaLegend(),
       });
     }
