@@ -8,8 +8,10 @@ library;
 
 import 'dart:convert';
 
+import 'ids.dart';
 import 'log_event.dart';
 import 'log_level.dart';
+import 'normalizer.dart';
 
 /// One group of occurrences sharing an error fingerprint.
 ///
@@ -87,13 +89,21 @@ class ErrorGroup {
     } else {
       // Count before sampling, so the bound on retained ids doesn't distort
       // the incident count.
-      if (!traceIds.contains(traceId)) {
+      if (!traceIds.contains(traceId) && !_recentOverflow.contains(traceId)) {
+        _distinctTraceCount++;
         if (traceIds.length < maxRetainedTraceIds) {
           traceIds.add(traceId);
-          _distinctTraceCount++;
-        } else if (!_overflowedTraces.contains(traceId)) {
-          _overflowedTraces.add(traceId);
-          _distinctTraceCount++;
+        } else {
+          // Past the sample bound, remember only a bounded window of recent
+          // trace ids. The duplicates that matter — one failure logged at
+          // several layers — arrive adjacent in time, so a small window
+          // catches them; a full set would grow without limit and make the
+          // bound above meaningless. Beyond the window `incidents` can
+          // over-count, which is the safe direction.
+          _recentOverflow.add(traceId);
+          if (_recentOverflow.length > _overflowWindow) {
+            _recentOverflow.remove(_recentOverflow.first);
+          }
         }
       }
     }
@@ -107,9 +117,13 @@ class ErrorGroup {
     loggers.add(event.logger);
   }
 
-  /// Trace ids seen past [maxRetainedTraceIds]. Held only to keep
-  /// [incidents] exact; not reported.
-  final Set<String> _overflowedTraces = {};
+  /// How many trace ids past [maxRetainedTraceIds] are remembered for
+  /// de-duplication.
+  static const int _overflowWindow = 128;
+
+  /// Recently seen trace ids past the sample bound. Insertion-ordered so the
+  /// oldest is evicted first.
+  final Set<String> _recentOverflow = <String>{};
 
   Map<String, Object?> toJson({bool includeChain = true}) => {
         'fingerprint': fingerprint,
@@ -199,8 +213,10 @@ class Digest {
     buffer.writeln();
     var rank = 1;
     for (final group in errorGroups.take(maxGroups)) {
-      buffer.writeln('### ${rank++}. `${group.first.error?.type ?? 'error'}` '
-          '(×${group.incidents}, fp:${group.fingerprint})');
+      final label = group.first.error?.type ??
+          '${group.first.level.wireName} in ${group.first.logger}';
+      buffer.writeln(
+          '### ${rank++}. `$label` (×${group.incidents}, fp:${group.fingerprint})');
       buffer.writeln();
       buffer.writeln(
           '- Message: ${group.first.error?.message ?? group.first.message}');
@@ -290,14 +306,24 @@ class DigestBuilder {
     _from = _from == null || event.time.isBefore(_from!) ? event.time : _from;
     _to = _to == null || event.time.isAfter(_to!) ? event.time : _to;
 
+    // Group anything at error level or above, not just events carrying an
+    // exception. `logger.errorMessage('payment rejected')` is an ordinary
+    // thing to write, and grouping only exception-bearing events made those
+    // vanish from the digest entirely: the summary would say `error=4` while
+    // the body said "No errors recorded."
+    if (event.level.severity < LogLevel.error.severity) return;
+
     final error = event.error;
-    if (error != null) {
-      final group = _groups.putIfAbsent(
-        error.fingerprint,
-        () => ErrorGroup(fingerprint: error.fingerprint, first: event),
-      );
-      group.add(event);
-    }
+    final fingerprint = error?.fingerprint ??
+        // No stack to normalize, so group by the shape of the message —
+        // `order 44 missing` and `order 99 missing` are one problem.
+        'msg:${shortHash('${event.logger}|${normalizeMessage(event.message)}')}';
+
+    final group = _groups.putIfAbsent(
+      fingerprint,
+      () => ErrorGroup(fingerprint: fingerprint, first: event),
+    );
+    group.add(event);
   }
 
   Digest build() {

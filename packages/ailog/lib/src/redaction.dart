@@ -24,6 +24,7 @@ class RedactionRule {
     required this.name,
     required this.pattern,
     this.validate,
+    this.requiresSubstring,
     this.enabledByDefault = true,
   });
 
@@ -37,12 +38,22 @@ class RedactionRule {
   /// Used to keep false positives down (e.g. Luhn check for card numbers).
   final bool Function(String match)? validate;
 
+  /// A literal that must appear for this rule to have any chance of matching.
+  ///
+  /// A `contains` scan is far cheaper than running the regex, and most
+  /// strings contain no `@` and no `-----BEGIN`. Skipping those outright is
+  /// the difference between paying for 13 regexes on every logged string and
+  /// paying for the two or three that could plausibly fire.
+  final String? requiresSubstring;
+
   /// Whether [Redactor.standard] includes this rule.
   final bool enabledByDefault;
 }
 
+final RegExp _nonDigit = RegExp(r'\D');
+
 bool _luhn(String candidate) {
-  final digits = candidate.replaceAll(RegExp(r'\D'), '');
+  final digits = candidate.replaceAll(_nonDigit, '');
   if (digits.length < 13 || digits.length > 19) return false;
   var sum = 0;
   var double = false;
@@ -68,11 +79,17 @@ final List<RedactionRule> builtInRedactionRules = [
     pattern: RegExp(
       r'-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----',
     ),
+    // Without the END marker there is no match, but the lazy `[\s\S]*?`
+    // still rescans to end-of-string for every BEGIN it finds. Requiring the
+    // terminator up front makes an unterminated block free instead of
+    // quadratic.
+    requiresSubstring: '-----END',
   ),
   RedactionRule(
     name: 'jwt',
     pattern: RegExp(
         r'\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\b'),
+    requiresSubstring: 'eyJ',
   ),
   RedactionRule(
     name: 'bearer',
@@ -109,7 +126,18 @@ final List<RedactionRule> builtInRedactionRules = [
   ),
   RedactionRule(
     name: 'email',
-    pattern: RegExp(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'),
+    // Both sides are length-bounded. `[A-Za-z]{2,}` for the TLD is the
+    // textbook form and is unbounded-greedy: against
+    // `alice@example.comSTATUS_OK` it consumes `comSTATUS` too, and against a
+    // long run of letters it swallows the lot — one probe collapsed 4 KB of
+    // text into a single placeholder. Over-redaction destroys exactly the
+    // context this package exists to preserve, so cap each part at a length
+    // no real address exceeds (RFC 5321 caps the local part at 64; the
+    // longest live TLD is 24 characters).
+    pattern: RegExp(
+      r'\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}\b',
+    ),
+    requiresSubstring: '@',
   ),
   RedactionRule(
     name: 'phone_jp',
@@ -209,6 +237,8 @@ class Redactor {
     if (input.isEmpty) return input;
     var result = input;
     for (final rule in rules) {
+      final required = rule.requiresSubstring;
+      if (required != null && !result.contains(required)) continue;
       result = result.replaceAllMapped(rule.pattern, (match) {
         final matched = match.group(0)!;
         if (rule.validate != null && !rule.validate!(matched)) return matched;
@@ -229,6 +259,25 @@ class Redactor {
   /// simple user-supplied patterns like `RegExp('internalId')` behaving the
   /// way they read.
   bool isSensitiveKey(String key) {
+    final cached = _keyCache[key];
+    if (cached != null) return cached;
+
+    final result = _computeIsSensitiveKey(key);
+    // Context keys come from a small fixed vocabulary in any real app, so
+    // this caches essentially everything after warm-up. Uncached, splitting
+    // and matching cost ~2.4 µs per key — around half the total cost of a
+    // typical log call with a handful of context fields. The bound only
+    // exists to stop a program that generates unbounded distinct keys (a map
+    // keyed by request id, say) from growing this without limit.
+    if (_keyCache.length >= _maxCachedKeys) _keyCache.clear();
+    _keyCache[key] = result;
+    return result;
+  }
+
+  static const int _maxCachedKeys = 1024;
+  final Map<String, bool> _keyCache = {};
+
+  bool _computeIsSensitiveKey(String key) {
     for (final word in sensitiveKeyWords(key)) {
       if (sensitiveKeyPattern.hasMatch(word)) return true;
     }

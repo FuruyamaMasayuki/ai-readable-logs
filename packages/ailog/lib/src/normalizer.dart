@@ -24,6 +24,20 @@ class StackFrame {
   /// Compact single-line rendering used in the JSONL output.
   String render() => member.isEmpty ? location : '$location $member';
 
+  /// [location] with any trailing `:<line>` removed.
+  ///
+  /// Fingerprints deliberately ignore line numbers so an edit above the
+  /// failing line doesn't split an error group. Deriving that from an
+  /// already-parsed frame avoids parsing the same stack trace a second time —
+  /// measured at over half the cost of logging an error.
+  String get locationWithoutLineNumber {
+    final lastColon = location.lastIndexOf(':');
+    if (lastColon <= 0) return location;
+    final suffix = location.substring(lastColon + 1);
+    if (suffix.isEmpty || int.tryParse(suffix) == null) return location;
+    return location.substring(0, lastColon);
+  }
+
   @override
   String toString() => render();
 }
@@ -163,12 +177,25 @@ String errorFingerprint({
   required String message,
   StackTrace? stackTrace,
   int framesInFingerprint = 5,
+}) =>
+    errorFingerprintFromParsedFrames(
+      errorType: errorType,
+      message: message,
+      frames: parseStackTrace(stackTrace, maxFrames: 40),
+      framesInFingerprint: framesInFingerprint,
+    );
+
+/// [errorFingerprint] for a stack trace that has already been parsed.
+///
+/// Line numbers are stripped here rather than during parsing, so a caller
+/// that also needs the frames for display can parse once and use the result
+/// for both.
+String errorFingerprintFromParsedFrames({
+  required String errorType,
+  required String message,
+  required List<StackFrame> frames,
+  int framesInFingerprint = 5,
 }) {
-  final frames = parseStackTrace(
-    stackTrace,
-    keepLineNumbers: false,
-    maxFrames: 40,
-  );
   final appFrames = frames.where((f) => f.isApp).take(framesInFingerprint);
   final signature = StringBuffer(errorType);
   if (appFrames.isEmpty) {
@@ -179,7 +206,7 @@ String errorFingerprint({
     for (final frame in appFrames) {
       signature
         ..write('|')
-        ..write(frame.location)
+        ..write(frame.locationWithoutLineNumber)
         ..write('#')
         ..write(frame.member);
     }

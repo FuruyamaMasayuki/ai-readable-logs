@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../log_event.dart';
+import '../log_level.dart';
 import 'log_sink.dart';
 
 /// Appends one JSON object per line to a file, with size-based rotation.
@@ -17,8 +18,18 @@ class JsonlFileSink implements LogSink {
     this.maxFiles = 5,
     this.flushInterval = const Duration(seconds: 2),
     this.writeSchemaHeader = true,
+    this.flushOnErrorLevel = true,
+    this.onError,
   }) : _path = path {
-    _open();
+    // A bad log path must not take down app startup: the same reasoning that
+    // makes `add` swallow I/O errors applies here. The sink starts unhealthy
+    // instead, and says so via [isHealthy] and [onError].
+    try {
+      _open();
+    } catch (error, stackTrace) {
+      _sink = null;
+      _report(error, stackTrace);
+    }
     if (flushInterval > Duration.zero) {
       _flushTimer = Timer.periodic(flushInterval, (_) {
         unawaited(flush());
@@ -41,13 +52,48 @@ class JsonlFileSink implements LogSink {
   /// Whether to write the schema legend as the first line of a new file.
   final bool writeSchemaHeader;
 
+  /// Whether `error`/`fatal` events force an immediate flush.
+  ///
+  /// Writes are buffered and flushed on [flushInterval], so a process that
+  /// dies takes the un-flushed tail with it — including, typically, the very
+  /// event that explains why it died. For a package built around post-mortem
+  /// analysis, losing that line is the worst possible failure, so it is
+  /// flushed eagerly by default. Set this false if the extra syscall on every
+  /// error is measurably too expensive.
+  final bool flushOnErrorLevel;
+
+  /// Called when a filesystem operation fails.
+  ///
+  /// Every I/O error here is swallowed so logging can never break the host
+  /// program, but silence has its own cost: a sink whose reopen failed drops
+  /// events forever, and "my logs just stop after a while" is an unfixable
+  /// bug report. This is the escape hatch — surface it somewhere you'll see.
+  final void Function(Object error, StackTrace stackTrace)? onError;
+
   IOSink? _sink;
   int _bytesWritten = 0;
   Timer? _flushTimer;
   bool _closed = false;
+  int _droppedEvents = 0;
 
   /// Path of the file currently being written.
   String get path => _path;
+
+  /// Whether the sink currently has somewhere to write.
+  ///
+  /// False after a failed open or reopen, when events are being dropped.
+  bool get isHealthy => !_closed && _sink != null;
+
+  /// How many events have been dropped because the sink was unhealthy.
+  int get droppedEvents => _droppedEvents;
+
+  void _report(Object error, StackTrace stackTrace) {
+    try {
+      onError?.call(error, stackTrace);
+    } catch (_) {
+      // A broken error handler must not escalate into a crash.
+    }
+  }
 
   void _open() {
     final file = File(_path);
@@ -100,9 +146,19 @@ class JsonlFileSink implements LogSink {
     // going wrong and the log matters most.
     try {
       if (_bytesWritten >= maxBytes) _rotate();
+      if (_sink == null) {
+        _droppedEvents++;
+        return;
+      }
       _writeLine(event.toJson());
-    } catch (_) {
+      if (flushOnErrorLevel &&
+          event.level.severity >= LogLevel.error.severity) {
+        unawaited(flush());
+      }
+    } catch (error, stackTrace) {
       // Give up on this event rather than propagating into the caller.
+      _droppedEvents++;
+      _report(error, stackTrace);
     }
   }
 
@@ -122,18 +178,20 @@ class JsonlFileSink implements LogSink {
         if (!source.existsSync()) continue;
         source.renameSync('$_path.$i');
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       // If rotation fails (permissions, a locked file on Windows) keep
       // logging into the existing file rather than losing events.
+      _report(error, stackTrace);
     }
 
     try {
       _open();
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Reopening failed (disk full, directory removed). Leave `_sink` null:
-      // `_writeLine` no-ops on a null sink, so the logger degrades to
-      // dropping events instead of throwing on every subsequent call.
+      // `add` then counts dropped events instead of throwing on every call,
+      // and `isHealthy` reports the degradation.
       _sink = null;
+      _report(error, stackTrace);
     }
   }
 

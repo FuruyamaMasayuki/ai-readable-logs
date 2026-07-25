@@ -123,6 +123,80 @@ void main() {
           ['common', 'rare']);
     });
 
+    test('groups error-level events that carry no exception object', () {
+      // `logger.errorMessage('payment rejected')` is an ordinary thing to
+      // write. Grouping only exception-bearing events made these vanish: the
+      // summary said `error=4` while the body said "No errors recorded."
+      final builder = DigestBuilder();
+      for (var i = 0; i < 4; i++) {
+        builder.addLine(
+          '{"ts":"2026-01-01T00:00:0${i}Z","lvl":"error",'
+          '"msg":"payment rejected: insufficient funds","lg":"payment",'
+          '"ses":"s","seq":$i,"tr":"t$i"}',
+        );
+      }
+      final digest = builder.build();
+
+      expect(digest.errorGroups, hasLength(1));
+      expect(digest.errorGroups.single.incidents, 4);
+      expect(digest.toMarkdown(), isNot(contains('No errors recorded')));
+      expect(digest.toMarkdown(), contains('payment rejected'));
+    });
+
+    test('message-only errors group by message shape, ignoring varying values',
+        () {
+      final builder = DigestBuilder();
+      builder.addLine(
+        '{"ts":"2026-01-01T00:00:00Z","lvl":"error","msg":"order 44 missing",'
+        '"lg":"app","ses":"s","seq":0,"tr":"a"}',
+      );
+      builder.addLine(
+        '{"ts":"2026-01-01T00:00:01Z","lvl":"error","msg":"order 99 missing",'
+        '"lg":"app","ses":"s","seq":1,"tr":"b"}',
+      );
+
+      expect(builder.build().errorGroups, hasLength(1),
+          reason: 'one problem, two order ids');
+    });
+
+    test('message-only errors from different loggers stay separate', () {
+      final builder = DigestBuilder();
+      builder.addLine(
+        '{"ts":"2026-01-01T00:00:00Z","lvl":"error","msg":"timeout",'
+        '"lg":"db","ses":"s","seq":0,"tr":"a"}',
+      );
+      builder.addLine(
+        '{"ts":"2026-01-01T00:00:01Z","lvl":"error","msg":"timeout",'
+        '"lg":"http","ses":"s","seq":1,"tr":"b"}',
+      );
+
+      expect(builder.build().errorGroups, hasLength(2));
+    });
+
+    test('warnings and below are not grouped as errors', () {
+      final builder = DigestBuilder();
+      builder.addLine(
+        '{"ts":"2026-01-01T00:00:00Z","lvl":"warn","msg":"retry budget low",'
+        '"lg":"http","ses":"s","seq":0}',
+      );
+      builder.addLine(
+        '{"ts":"2026-01-01T00:00:01Z","lvl":"info","msg":"ok",'
+        '"lg":"http","ses":"s","seq":1}',
+      );
+
+      expect(builder.build().errorGroups, isEmpty);
+    });
+
+    test('fatal events are grouped alongside errors', () {
+      final builder = DigestBuilder();
+      builder.addLine(
+        '{"ts":"2026-01-01T00:00:00Z","lvl":"fatal","msg":"process aborting",'
+        '"lg":"app","ses":"s","seq":0,"tr":"a"}',
+      );
+
+      expect(builder.build().errorGroups, hasLength(1));
+    });
+
     test('skips header lines and counts unparsable lines as dropped', () {
       final builder = DigestBuilder();
       builder.addLine('{"_hdr":true,"schema":1}');

@@ -3,6 +3,7 @@ library;
 
 import 'dart:async';
 
+import 'breadcrumb.dart';
 import 'call_site.dart';
 import 'causal_buffer.dart';
 import 'context.dart';
@@ -504,54 +505,91 @@ class Logger {
     if (!emitting && !buffering) return;
 
     final scope = currentScope;
-    // Precedence, least to most specific: base < scope < call site.
-    final mergedContext = {
-      ..._core.baseContext,
-      ...scope.fields,
-      ...?context,
-    };
-    final mergedTags = [...scope.tags, ...?tags];
+    final now = _clock();
 
     // A message-less call is a checkpoint: synthesize one from the call site
     // so the line still says *where* execution reached. Only paid once we
     // know the event is going somewhere.
     var resolvedMessage = message;
+    var isCheckpoint = false;
     if (resolvedMessage == null) {
       resolvedMessage = captureCallSite(skipFrames: skipFrames)?.render() ??
           _unresolvedCallSite;
-      mergedTags.add('checkpoint');
+      isCheckpoint = true;
     }
 
-    final event = LogEvent(
-      time: _clock(),
-      level: level,
-      // Redact *and* bound the message. Without the length bound a single
-      // `logger.info(hugeString)` could put megabytes on one line and eat an
-      // entire model context window — the same budget guarantee `Sanitizer`
-      // makes for context values applies here.
-      message: _core.sanitizer.sanitizeText(resolvedMessage),
-      logger: name,
-      sessionId: _core.sessionId,
-      // Only consume a sequence number for events that are actually written.
-      // Breadcrumb-only events never reach the file, and burning numbers on
-      // them would leave gaps that read like dropped lines. Chain entries
-      // don't carry `seq`, so 0 here is never observable.
-      sequence: emitting ? _core.sequence.next() : 0,
-      traceId: scope.traceId,
-      spanId: scope.spanId,
-      parentSpanId: scope.parentSpanId,
-      context: _core.sanitizer.sanitizeMap(mergedContext),
-      tags: mergedTags,
-      error: error,
-      durationMs: durationMs,
-    );
+    // Precedence, least to most specific: base < scope < call site.
+    final mergedContext = _core.baseContext.isEmpty &&
+            scope.fields.isEmpty &&
+            (context == null || context.isEmpty)
+        ? const <String, Object?>{}
+        : <String, Object?>{
+            ..._core.baseContext,
+            ...scope.fields,
+            ...?context,
+          };
 
-    if (buffering) _core.causalBuffer.record(event);
+    // Chain first, breadcrumb second: an event must not appear in its own
+    // causal chain.
+    final isErrorish =
+        error != null || level.severity >= LogLevel.error.severity;
+    final chain = emitting && isErrorish && _core.causalChainLength > 0
+        ? _core.causalBuffer.chainFor(
+            time: now,
+            traceId: scope.traceId,
+            sanitizer: _core.sanitizer,
+            limit: _core.causalChainLength,
+          )
+        : const <Map<String, Object?>>[];
+
+    if (buffering) {
+      // Recorded raw. Most breadcrumbs are never rendered — they only become
+      // visible if an error happens in the same trace while they are still in
+      // the buffer — so redaction and the recursive sanitize walk are
+      // deferred to render time. Doing them here would make a filtered-out
+      // `logger.debug()` cost as much as an emitted one, which would defeat
+      // the point of setting `minimumLevel` at all.
+      _core.causalBuffer.record(
+        Breadcrumb(
+          time: now,
+          level: level,
+          message: resolvedMessage,
+          logger: name,
+          context: mergedContext,
+        ),
+        traceId: scope.traceId,
+      );
+    }
     if (!emitting) return;
 
-    final withChain = _attachCausalChain(event,
-        isErrorish: error != null || level.severity >= LogLevel.error.severity);
-    _core.sink.add(withChain);
+    final mergedTags = [
+      ...scope.tags,
+      ...?tags,
+      if (isCheckpoint) 'checkpoint',
+    ];
+
+    _core.sink.add(
+      LogEvent(
+        time: now,
+        level: level,
+        // Redact *and* bound the message. Without the length bound a single
+        // `logger.info(hugeString)` could put megabytes on one line and eat
+        // an entire model context window — the same budget guarantee
+        // `Sanitizer` makes for context values applies here.
+        message: _core.sanitizer.sanitizeText(resolvedMessage),
+        logger: name,
+        sessionId: _core.sessionId,
+        sequence: _core.sequence.next(),
+        traceId: scope.traceId,
+        spanId: scope.spanId,
+        parentSpanId: scope.parentSpanId,
+        context: _core.sanitizer.sanitizeMap(mergedContext),
+        tags: mergedTags,
+        error: error,
+        durationMs: durationMs,
+        chain: chain,
+      ),
+    );
   }
 
   /// Stands in for a call site that could not be resolved.
@@ -562,29 +600,6 @@ class Logger {
   /// caller; this at least says what happened and why.
   static const String _unresolvedCallSite =
       '→ <call site unavailable: obfuscated or non-symbolic build>';
-
-  LogEvent _attachCausalChain(LogEvent event, {required bool isErrorish}) {
-    if (!isErrorish || _core.causalChainLength <= 0) return event;
-    final chain =
-        _core.causalBuffer.chainFor(event, limit: _core.causalChainLength);
-    if (chain.isEmpty) return event;
-    return LogEvent(
-      time: event.time,
-      level: event.level,
-      message: event.message,
-      logger: event.logger,
-      sessionId: event.sessionId,
-      sequence: event.sequence,
-      traceId: event.traceId,
-      spanId: event.spanId,
-      parentSpanId: event.parentSpanId,
-      context: event.context,
-      tags: event.tags,
-      error: event.error,
-      durationMs: event.durationMs,
-      chain: chain,
-    );
-  }
 
   Future<void> flush() => _core.sink.flush();
 

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:ailog/ailog.dart';
 import 'package:test/test.dart';
 
@@ -30,6 +32,49 @@ void main() {
           RegExp(r'#([0-9a-f]+)\]').firstMatch(second)!.group(1);
       expect(firstToken, secondToken,
           reason: 'same value must produce same token');
+    });
+
+    test('email masking does not swallow text after the address', () {
+      // The TLD used to be `[A-Za-z]{2,}`, which is unbounded-greedy: it ate
+      // trailing letters, and against a long run collapsed kilobytes of
+      // context into one placeholder. Over-redaction destroys the very
+      // context this package exists to preserve.
+      //
+      // Only the trailing side is fixable. `xxxalice@example.com` is a
+      // syntactically valid address with a long local part, so text running
+      // directly into the `@` is genuinely indistinguishable from part of the
+      // address. In practice logged addresses are delimited by a quote,
+      // space or `=`, which bounds the match anyway.
+      final redactor = Redactor(salt: 'fixed');
+
+      final adjacent = redactor.redactString('alice@example.comSTATUS_OK');
+      expect(adjacent, contains('STATUS_OK'),
+          reason: 'trailing context must survive');
+
+      final delimited = redactor.redactString('user=alice@example.com ok');
+      expect(delimited, startsWith('user='));
+      expect(delimited, endsWith(' ok'));
+    });
+
+    test('a long run of letters is not treated as one giant address', () {
+      final redactor = Redactor(salt: 'fixed');
+      final result = redactor.redactString('a@b.${'c' * 500}');
+      // The TLD cap means at most 24 trailing characters are consumed, so
+      // the bulk of the run survives instead of vanishing.
+      expect(result.length, greaterThan(400));
+    });
+
+    test('normal addresses are still fully masked', () {
+      final redactor = Redactor(salt: 'fixed');
+      for (final address in [
+        'alice@example.com',
+        'a.b+tag@sub.domain.co.jp',
+        'first_last@my-company.io',
+      ]) {
+        final result = redactor.redactString('contact $address today');
+        expect(result, isNot(contains(address)), reason: address);
+        expect(result, contains('[redacted:email#'), reason: address);
+      }
     });
 
     test('different values produce different tokens', () {
@@ -170,7 +215,40 @@ void main() {
       final map = <String, Object?>{'name': 'root'};
       map['self'] = map;
       final result = sanitizer.sanitize(map) as Map;
-      expect(result['self'], '<circular>');
+      expect(result['self'], '<seen>');
+    });
+
+    test('a shared reference is not re-walked into an exponential blowup', () {
+      // A diamond-shaped graph — children pointing back at one shared parent —
+      // is what an ORM entity graph or a normalized cache looks like. It has
+      // no cycle and needs no hostile input, but re-walking each path made
+      // output grow as maxMapEntries^maxDepth: measured at 4.2 MiB from 72
+      // input entries, and at the defaults that is ~10^8 entries, i.e. one
+      // `logger.info` that hangs and then exhausts memory.
+      Map<String, Object?> level = {'leaf': 1};
+      for (var depth = 0; depth < 5; depth++) {
+        final shared = level;
+        level = {for (var i = 0; i < 40; i++) 'k$i': shared};
+      }
+
+      final sanitizer = Sanitizer(redactor: Redactor.disabled());
+      final encoded = jsonEncode(sanitizer.sanitizeMap({'body': level}));
+
+      expect(encoded.length, lessThan(50000),
+          reason: 'output must stay linear in input size');
+      expect(encoded, contains('<seen>'));
+    });
+
+    test('structurally equal but distinct values both render in full', () {
+      // The de-duplication is by identity, so two separate maps that happen
+      // to be equal must not be collapsed — that would lose real data.
+      final sanitizer = Sanitizer(redactor: Redactor.disabled());
+      final result = sanitizer.sanitizeMap({
+        'a': {'x': 1},
+        'b': {'x': 1},
+      });
+      expect(result['a'], {'x': 1});
+      expect(result['b'], {'x': 1});
     });
 
     test('falls back to toJson() for custom objects', () {

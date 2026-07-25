@@ -209,6 +209,83 @@ void main() {
       await expectLater(sink.close(), completes);
     });
 
+    test('a deleted log directory is recreated rather than ending logging',
+        () async {
+      // External cleanup, ejected storage, or a user clearing app data. The
+      // sink recreates the directory on its next open, so logging resumes
+      // instead of dying quietly.
+      final path = '${tempDir.path}/nested/app.jsonl';
+      final sink = JsonlFileSink(
+        path: path,
+        flushInterval: Duration.zero,
+        maxBytes: 40,
+        writeSchemaHeader: false,
+      );
+
+      sink.add(_event('before'));
+      await sink.flush();
+      Directory('${tempDir.path}/nested').deleteSync(recursive: true);
+
+      for (var i = 0; i < 5; i++) {
+        sink.add(_event('after directory removal $i'));
+      }
+      await sink.flush();
+
+      expect(sink.isHealthy, isTrue);
+      expect(File(path).existsSync(), isTrue);
+      await sink.close();
+    });
+
+    test('reports unhealthiness and drops instead of silently going dead',
+        () async {
+      // Make the parent path a *file*, so the directory can never be created
+      // and every open genuinely fails.
+      final blocker = File('${tempDir.path}/blocked')..writeAsStringSync('x');
+      final errors = <Object>[];
+
+      final sink = JsonlFileSink(
+        path: '${blocker.path}/app.jsonl',
+        flushInterval: Duration.zero,
+        writeSchemaHeader: false,
+        onError: (error, _) => errors.add(error),
+      );
+
+      expect(sink.isHealthy, isFalse,
+          reason: '"my logs just stop" must be diagnosable');
+
+      expect(() => sink.add(_event('dropped')), returnsNormally);
+      expect(sink.droppedEvents, greaterThan(0));
+      expect(errors, isNotEmpty, reason: 'onError should have fired');
+      await sink.close();
+    });
+
+    test('an error-level event reaches disk without an explicit flush',
+        () async {
+      // A process that dies takes the un-flushed tail with it — including the
+      // event explaining why it died, which is the one line you need most.
+      final path = '${tempDir.path}/app.jsonl';
+      final sink = JsonlFileSink(
+        path: path,
+        flushInterval: Duration.zero, // no timer: nothing else will flush
+        writeSchemaHeader: false,
+      );
+
+      sink.add(LogEvent(
+        time: DateTime.utc(2026),
+        level: LogLevel.error,
+        message: 'the thing that killed us',
+        logger: 'app',
+        sessionId: 's',
+        sequence: 1,
+      ));
+
+      // Deliberately no flush() call.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(
+          File(path).readAsStringSync(), contains('the thing that killed us'));
+      await sink.close();
+    });
+
     test('path getter reflects the constructor argument', () {
       final path = '${tempDir.path}/app.jsonl';
       final sink = JsonlFileSink(path: path, flushInterval: Duration.zero);

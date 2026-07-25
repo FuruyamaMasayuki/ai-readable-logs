@@ -95,7 +95,11 @@ class ErrorInfo {
     final rawMessage = error.toString();
     final message = sanitizeText?.call(rawMessage) ?? rawMessage;
 
-    final parsed = parseStackTrace(stackTrace, maxFrames: maxFrames * 3);
+    // Parsed once and used for both the displayed frames and the
+    // fingerprint. Parsing twice — which is what calling `errorFingerprint`
+    // here would do — was over half the cost of logging an error, and that
+    // cost lands exactly during an error storm.
+    final parsed = parseStackTrace(stackTrace, maxFrames: 40);
     // Application frames carry the signal; SDK frames are kept only as filler
     // when there is room left.
     final appFrames = parsed.where((f) => f.isApp).toList();
@@ -105,10 +109,10 @@ class ErrorInfo {
     return ErrorInfo(
       type: type,
       message: message,
-      fingerprint: errorFingerprint(
+      fingerprint: errorFingerprintFromParsedFrames(
         errorType: type,
         message: rawMessage,
-        stackTrace: stackTrace,
+        frames: parsed,
       ),
       frames: ordered.map((f) => f.render()).toList(),
     );

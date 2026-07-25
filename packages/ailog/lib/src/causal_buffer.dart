@@ -9,29 +9,45 @@ library;
 
 import 'dart:collection';
 
-import 'log_event.dart';
+import 'breadcrumb.dart';
+import 'sanitizer.dart';
 
-/// A bounded ring of recent events, partitioned by trace.
+/// A bounded ring of recent breadcrumbs, partitioned by trace.
 class CausalBuffer {
   CausalBuffer({this.perTraceCapacity = 20, this.maxTraces = 64});
 
-  /// How many recent events are retained per trace.
+  /// How many recent breadcrumbs are retained per trace.
   final int perTraceCapacity;
 
   /// How many distinct traces are retained. Least recently used traces are
   /// dropped first, which bounds memory in long-running servers.
+  ///
+  /// Above this many concurrent traces, chain quality degrades sharply rather
+  /// than gradually: traces evict each other before their error arrives, and
+  /// the error line simply has no chain. A server handling more than this many
+  /// requests at once should raise it (`Logger.create`'s
+  /// `causalChainTraces`); [evictedTraces] reports when it is happening.
   final int maxTraces;
 
   /// Insertion-ordered so the first key is the least recently touched trace.
-  final LinkedHashMap<String, Queue<LogEvent>> _byTrace = LinkedHashMap();
+  final LinkedHashMap<String, Queue<Breadcrumb>> _byTrace = LinkedHashMap();
 
   static const String _noTrace = '';
 
-  void record(LogEvent event) {
-    final key = event.traceId ?? _noTrace;
+  int _evictedTraces = 0;
+
+  /// How many traces have been dropped to stay within [maxTraces].
+  ///
+  /// Non-zero means some errors lost their causal chain — worth surfacing,
+  /// because the symptom (an error line with no chain) is otherwise
+  /// indistinguishable from a trace that genuinely had no history.
+  int get evictedTraces => _evictedTraces;
+
+  void record(Breadcrumb breadcrumb, {String? traceId}) {
+    final key = traceId ?? _noTrace;
     // Re-insert to move this trace to the most-recently-used end.
-    final queue = _byTrace.remove(key) ?? Queue<LogEvent>();
-    queue.addLast(event);
+    final queue = _byTrace.remove(key) ?? Queue<Breadcrumb>();
+    queue.addLast(breadcrumb);
     while (queue.length > perTraceCapacity) {
       queue.removeFirst();
     }
@@ -39,10 +55,11 @@ class CausalBuffer {
 
     while (_byTrace.length > maxTraces) {
       _byTrace.remove(_byTrace.keys.first);
+      _evictedTraces++;
     }
   }
 
-  /// The [limit] most recent events for [traceId], oldest first.
+  /// The [limit] most recent breadcrumbs for [traceId], oldest first.
   ///
   /// Events from *different* traces are never mixed: a chain that silently
   /// blends unrelated operations is worse than a short one.
@@ -54,22 +71,34 @@ class CausalBuffer {
   /// app — which may be unrelated. That is still useful in a simple,
   /// sequential program, and misleading in a concurrent one. Wrap concurrent
   /// work in a trace to get chains you can trust.
-  List<LogEvent> recentFor(String? traceId, {int limit = 10}) {
+  List<Breadcrumb> recentFor(String? traceId, {int limit = 10}) {
     final queue = _byTrace[traceId ?? _noTrace];
     if (queue == null || queue.isEmpty) return const [];
-    final events = queue.toList();
-    if (events.length <= limit) return events;
-    return events.sublist(events.length - limit);
+    final crumbs = queue.toList();
+    if (crumbs.length <= limit) return crumbs;
+    return crumbs.sublist(crumbs.length - limit);
   }
 
-  /// Renders the chain that gets embedded in [event].
-  List<Map<String, Object?>> chainFor(LogEvent event, {int limit = 10}) {
-    final recent = recentFor(event.traceId, limit: limit);
+  /// Renders the chain to embed in an event at [time] within [traceId].
+  ///
+  /// Sanitization happens here rather than at record time, so breadcrumbs
+  /// that are never pulled into a chain cost nothing beyond their allocation.
+  List<Map<String, Object?>> chainFor({
+    required DateTime time,
+    required String? traceId,
+    required Sanitizer sanitizer,
+    int limit = 10,
+    Breadcrumb? exclude,
+  }) {
+    final recent = recentFor(traceId, limit: limit);
     return [
-      for (final past in recent)
-        if (!identical(past, event)) past.toChainEntry(event.time),
+      for (final crumb in recent)
+        if (!identical(crumb, exclude)) crumb.render(time, sanitizer),
     ];
   }
 
-  void clear() => _byTrace.clear();
+  void clear() {
+    _byTrace.clear();
+    _evictedTraces = 0;
+  }
 }
