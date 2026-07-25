@@ -22,6 +22,22 @@ my_app_logs_2026-07-25T12-00-00.zip
 describes the files beside it. For most bug reports it is the only thing the
 recipient — human or AI — needs to open.
 
+## Install
+
+```sh
+flutter pub add ailog ailog_vault
+```
+
+Until the packages are on pub.dev, depend on them from the repository:
+
+```yaml
+dependencies:
+  ailog_vault:
+    git:
+      url: https://github.com/FuruyamaMasayuki/ai-readable-logs
+      path: packages/ailog_vault
+```
+
 ## Usage
 
 ```dart

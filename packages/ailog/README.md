@@ -33,10 +33,18 @@ reading the whole file just to reconstruct what happened before an error.
 
 ## Install
 
+```sh
+dart pub add ailog        # or: flutter pub add ailog
+```
+
+Until the package is on pub.dev, depend on it straight from the repository:
+
 ```yaml
 dependencies:
   ailog:
-    path: ../ailog   # or a version constraint once published
+    git:
+      url: https://github.com/FuruyamaMasayuki/ai-readable-logs
+      path: packages/ailog
 ```
 
 ## Usage

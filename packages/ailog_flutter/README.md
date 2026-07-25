@@ -6,6 +6,26 @@ framework's error channels (`FlutterError.onError`,
 same AI-readable JSONL output — and bridges native Kotlin/Swift code into it
 too.
 
+## Install
+
+```sh
+flutter pub add ailog ailog_flutter
+```
+
+Until the packages are on pub.dev, depend on them from the repository:
+
+```yaml
+dependencies:
+  ailog:
+    git:
+      url: https://github.com/FuruyamaMasayuki/ai-readable-logs
+      path: packages/ailog
+  ailog_flutter:
+    git:
+      url: https://github.com/FuruyamaMasayuki/ai-readable-logs
+      path: packages/ailog_flutter
+```
+
 ## Setup
 
 ```dart

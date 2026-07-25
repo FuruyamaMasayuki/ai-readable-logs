@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  ailog:
+    name: ailog (pure Dart)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ailog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: dart analyze --fatal-infos
+      - run: dart test
+      - run: dart doc --validate-links
+      - run: dart pub publish --dry-run
+
+  ailog_flutter:
+    name: ailog_flutter
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ailog_flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      - run: dart pub publish --dry-run
+
+  ailog_vault:
+    name: ailog_vault
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/ailog_vault
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      # dry-run resolves log_vault from pub.dev; it will fail until a
+      # log_vault release with LogDumper.extraPatterns (>= 0.1.1) exists,
+      # which is the honest signal that ailog_vault cannot ship first.
+      - run: dart pub publish --dry-run
