@@ -435,6 +435,48 @@ class Logger {
         skipFrames: skipFrames,
       );
 
+  /// Records something the *user* did — a tap, a swipe, a form submission.
+  ///
+  /// "What was the user doing just before this crash" is the single most
+  /// useful thing a bug report can carry, and this package already has the
+  /// mechanism for it: at the default [LogLevel.trace], interactions stay
+  /// out of a production file but are retained as breadcrumbs, so they turn
+  /// up embedded in the causal chain of whatever failed next:
+  ///
+  /// ```text
+  /// ERROR checkout failed [fp:7ed4a8d1]
+  ///   — causal chain —
+  ///     -8.2s  ▸ tapped "View cart"
+  ///     -5.1s  route pushed: /cart
+  ///     -0.3s  ▸ tapped "Pay now"
+  /// ```
+  ///
+  /// Pass the *intent*, not the button's caption:
+  ///
+  /// ```dart
+  /// logger.interaction('checkout_pressed', context: {'items': 3});
+  /// ```
+  ///
+  /// An intent name survives copy changes, translation and A/B tests, and it
+  /// groups across all of them. A caption ("Pay now" / "支払う") splits one
+  /// behaviour into as many buckets as you have locales.
+  ///
+  /// The `▸` prefix and the `interaction` tag make these trivially separable
+  /// from application logging — `logger.interaction` events answer "what did
+  /// the person do", everything else answers "what did the program do".
+  void interaction(
+    String name, {
+    LogLevel level = LogLevel.trace,
+    Map<String, Object?>? context,
+    List<String>? tags,
+  }) =>
+      _emit(
+        level,
+        '▸ $name',
+        context: context,
+        tags: [...?tags, 'interaction'],
+      );
+
   /// Whether [checkpoint] can resolve call sites in this build.
   ///
   /// False in non-symbolic AOT builds and on some web targets. Check it once

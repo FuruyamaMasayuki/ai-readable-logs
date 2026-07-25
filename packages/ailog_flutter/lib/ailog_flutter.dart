@@ -9,6 +9,7 @@ library ailog_flutter;
 export 'package:ailog/ailog.dart';
 
 export 'src/error_hooks.dart' show AilogFlutter;
+export 'src/lifecycle_observer.dart' show AilogLifecycleObserver;
 export 'src/native_bridge.dart' show AilogNativeBridge;
 export 'src/navigator_observer.dart' show AilogNavigatorObserver;
 export 'src/run_app_guarded.dart' show runAppGuarded;

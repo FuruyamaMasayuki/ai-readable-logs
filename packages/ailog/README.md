@@ -40,6 +40,7 @@ reading the whole file just to reconstruct what happened before an error.
 [Traces and spans](#traces-and-spans) ·
 [Checkpoints](#checkpoints--logging-where-not-what) ·
 [Capturing `print()`](#capturing-plain-print-calls) ·
+[User interactions](#user-interactions) ·
 [Per-subsystem loggers](#per-subsystem-loggers) ·
 [Build modes](#debug--profile--release-builds)
 
@@ -212,6 +213,30 @@ not install its scope, so logs written between `startSpan()` and
 in `runWithScope(span.scope, …)` yourself. `span()` and `spanSync()` do that
 for you, and close the span on both return and throw. Reach for the manual
 form only when the work genuinely isn't a single callback.
+
+### User interactions
+
+```dart
+logger.interaction('checkout_pressed', context: {'items': 3});
+```
+
+Records what the *person* did. Defaults to `trace`, so at a production
+`minimumLevel` these stay out of the file but are retained as breadcrumbs —
+they appear embedded in the causal chain of whatever fails next:
+
+```text
+ERROR checkout failed [fp:7ed4a8d1]
+  — causal chain —
+    -8.2s  ▸ view_cart_pressed
+    -5.1s  route pushed: /cart
+    -0.3s  ▸ checkout_pressed
+```
+
+Pass the intent (`checkout_pressed`), not the button's caption — an intent
+survives copy changes and translation and groups across them. See
+[`ailog_flutter`](../ailog_flutter/README.md#user-interaction-logging) for
+app lifecycle tracking and why there is deliberately no automatic
+"log every tap".
 
 ### Guarding expensive context
 

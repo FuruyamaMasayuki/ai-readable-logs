@@ -1,5 +1,20 @@
 ## 0.3.0
 
+- **`AilogLifecycleObserver`** — foreground/background/termination, with both
+  ends of each transition (`paused → resumed`). A handful of events over a
+  session, and repeatedly decisive: "crashes when you come back to the app"
+  is invisible in a log that only records what the code did. Defaults to
+  `trace`, so it stays out of a production file while remaining available as
+  a breadcrumb.
+- User interaction logging documented, built on `ailog`'s new
+  `logger.interaction()`. Deliberately **no** automatic "log every tap":
+  measured against a real widget tree, a root `Listener` plus a hit test
+  recovers a useful label only for text-labelled buttons — an `IconButton`
+  yields "a button", a `TextField` nothing — while costing a hit test per
+  pointer-down and carrying a privacy problem regex redaction cannot solve
+  (semantic labels contain user data: a contacts row is labelled with a
+  person's name). The README states this, with the numbers and a recipe for
+  anyone who wants it anyway.
 - `runAppGuarded` gains `capturePrint` / `forwardPrintsToConsole`: plain
   `print()` calls (yours or a dependency's) are routed into the structured
   log via `ailog`'s `capturePrints`.

@@ -20,6 +20,11 @@
   machine-shaped by design, and there was no way to look at one with human
   eyes short of reading raw JSON. Colour on a terminal, plain with `-o`;
   interleaved non-JSON lines pass through untouched.
+- **`logger.interaction(name)`** — records what the *user* did. Defaults to
+  `trace`, so at a production level these stay out of the file while being
+  retained as breadcrumbs, which puts the user's path through the app
+  directly into the causal chain of whatever fails next. Takes an intent
+  name rather than a caption, so it survives copy changes and translation.
 - **`JsonlPrintSink`.** Prints the same wire format `JsonlFileSink` writes,
   one line per event, through `print`. Exists for a real device with no
   reachable filesystem path: `flutter run` already mirrors the app's print

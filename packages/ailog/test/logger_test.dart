@@ -514,4 +514,62 @@ void main() {
       expect(event.durationMs, isNotNull);
     });
   });
+
+  group('interaction', () {
+    test('records the intent with a marker and a tag', () {
+      final sink = MemorySink();
+      Logger.create(sink: sink)
+          .interaction('checkout_pressed', context: {'items': 3});
+
+      final event = sink.events.single;
+      expect(event.message, '▸ checkout_pressed');
+      expect(event.level, LogLevel.trace);
+      expect(event.tags, contains('interaction'));
+      expect(event.context['items'], 3);
+    });
+
+    test('stays out of a production file but lands in the causal chain', () {
+      // The whole design: user actions are noise in the file and decisive in
+      // the chain. `minimumLevel: info` is the realistic production setting.
+      final sink = MemorySink();
+      final logger = Logger.create(sink: sink, minimumLevel: LogLevel.info);
+
+      runWithScope(logger.startTrace(), () {
+        logger.interaction('view_cart_pressed');
+        logger.interaction('checkout_pressed');
+        logger.error(StateError('declined'), StackTrace.current);
+      });
+
+      expect(sink.events, hasLength(1),
+          reason: 'interactions must not fill the file');
+      expect(
+        sink.events.single.chain.map((c) => c['msg']),
+        ['▸ view_cart_pressed', '▸ checkout_pressed'],
+      );
+    });
+
+    test('caller tags are kept alongside the interaction tag', () {
+      final sink = MemorySink();
+      Logger.create(sink: sink).interaction('tap', tags: ['onboarding']);
+
+      expect(
+          sink.events.single.tags, containsAll(['interaction', 'onboarding']));
+    });
+
+    test('the level is raisable for apps that want them written', () {
+      final sink = MemorySink();
+      Logger.create(sink: sink, minimumLevel: LogLevel.info)
+          .interaction('tap', level: LogLevel.info);
+
+      expect(sink.events, hasLength(1));
+    });
+
+    test('context is redacted like any other event', () {
+      final sink = MemorySink();
+      Logger.create(sink: sink, redactor: Redactor(salt: 'fixed'))
+          .interaction('signup', context: {'email': 'a@example.com'});
+
+      expect(sink.events.single.context['email'], contains('[redacted:email'));
+    });
+  });
 }

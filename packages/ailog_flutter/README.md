@@ -112,6 +112,100 @@ MaterialApp(
 Push/pop/remove/replace land in the JSONL as `info` events, so "which screens
 did the user pass through before the crash" is answerable from the log alone.
 
+## User interaction logging
+
+"What was the person doing just before this broke" is the most valuable
+thing a bug report can carry, and `ailog` already has the mechanism: at the
+default `trace` level these stay **out of the file** but are retained as
+breadcrumbs, so they surface embedded in the causal chain of whatever fails
+next.
+
+### App lifecycle
+
+```dart
+final lifecycle = AilogLifecycleObserver(logger)..install();
+```
+
+Foreground/background/termination, with both ends of each transition
+(`paused → resumed`). A handful of events over a whole session, and
+repeatedly decisive: "crashes when you come back to the app" is invisible in
+a log that only records what the code did.
+
+### Taps and other actions
+
+```dart
+ElevatedButton(
+  onPressed: () {
+    logger.interaction('checkout_pressed', context: {'items': cart.length});
+    _checkout();
+  },
+  child: const Text('Pay now'),
+)
+```
+
+Log the **intent**, not the caption. `checkout_pressed` survives copy
+changes, translation and A/B tests and groups across all of them; `"Pay now"`
+/ `"支払う"` splits one behaviour into as many buckets as you have locales.
+
+In practice you write this once, in a shared button component, and every
+screen gets it:
+
+```dart
+class AppButton extends StatelessWidget {
+  const AppButton({super.key, required this.action, required this.onPressed, required this.child});
+  final String action;
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => ElevatedButton(
+        onPressed: () {
+          logger.interaction(action);
+          onPressed();
+        },
+        child: child,
+      );
+}
+```
+
+What lands in the log when something then fails:
+
+```text
+ERROR checkout failed [fp:7ed4a8d1]
+  — causal chain (4 events) —
+    -11ms  ▸ view_cart_pressed
+    -10ms  route pushed: /cart
+    -8ms   ▸ coupon_applied
+    -6ms   ▸ checkout_pressed
+```
+
+### Why there is no automatic "log every tap"
+
+A single root-level `Listener` catching every pointer event is the obvious
+idea, and this package deliberately does not ship one. Measured against a
+real widget tree, what a root `Listener` plus a hit test can actually
+recover is:
+
+| Tapped | Recovered |
+|---|---|
+| `ElevatedButton` with a `Text` child | `"Add to cart"` — useful |
+| `IconButton` (even with a `tooltip`) | "a button", no label |
+| `TextField`, most other widgets | nothing |
+
+So the automatic route yields raw coordinates for most of the screen —
+`tap at (234, 567)` tells an AI nothing — plus a label for text buttons
+only. Against that it costs a hit test on every pointer-down (one scroll is
+many), volume in a format whose entire premise is not wasting a context
+window, and a real privacy problem: **semantic labels contain user data**.
+A contacts row is labelled with a person's name; a message row with the
+message. Regex redaction cannot catch that.
+
+Explicit `interaction()` calls cost one line each and give strictly better
+data. If you still want the automatic version for a debug build, it is about
+fifteen lines — wrap your app in a `Listener`, hit-test `event.position`, and
+pull `SemanticsConfiguration.label` off the path — and you can decide for
+yourself what to do about the caveats above.
+
 ## `AilogFlutter.install` options
 
 | Option | Default | What it does |

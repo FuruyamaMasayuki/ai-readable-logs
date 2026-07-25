@@ -100,6 +100,7 @@ void main() {
   logger.fatal(StateError('e'), null);
   logger.log(LogLevel.info, 'x');
   logger.checkpoint();
+  logger.interaction('checkout_pressed', context: {'items': 3});
   logger.isEnabled(LogLevel.info);
   logger.isRecorded(LogLevel.info);
   logger.startTrace();
