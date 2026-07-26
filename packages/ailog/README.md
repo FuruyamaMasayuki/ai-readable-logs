@@ -451,10 +451,78 @@ void main() {
 ```
 
 Set `forwardToConsole: false` if a `ConsoleSink` is attached, or each print
-shows up twice (once raw, once formatted). Prints emitted by the logging
-pipeline itself are passed through untouched — a console sink cannot feed
-back into the log. In Flutter, `runAppGuarded(..., capturePrint: true)` does
-the same thing with one flag.
+shows up twice (once raw, once formatted). In Flutter, `runAppGuarded(...,
+capturePrint: true)` does the same thing with one flag.
+
+### How it actually works
+
+`print()` in Dart is not a direct syscall — every call is routed through
+`Zone.current.print()`, and any code can install its own `Zone` with a
+different `print` handler. `capturePrints` runs `body` inside exactly such a
+zone: its handler receives every `print()` call made anywhere in that zone,
+looks at the string, forwards it to the real console, and logs it as an
+event through a child logger (named `print` by default, via `loggerName`).
+
+That mechanism has consequences worth knowing, each verified rather than
+assumed:
+
+- **It does not care which file the call came from.** A `print()` inside a
+  third-party package, called from deep in a dependency you've never opened,
+  is captured exactly like one in your own code — confirmed by capturing a
+  print from a plain top-level function with no `ailog` import at all. There
+  is nothing to configure for this; it falls out of how zones work.
+- **Scheduled work stays captured.** A `print()` inside a `Timer` callback or
+  a `Future.delayed` continuation *created* inside `body` is still captured
+  even though it fires later — Dart binds a `Timer`/`Future` to the zone it
+  was scheduled in, not the zone active when it eventually runs. Confirmed
+  for both.
+- **The boundary is exact.** A `print()` before `capturePrints` is entered,
+  or after it returns, reaches only the console — never the log. Confirmed.
+- **A spawned `Isolate` is its own zone tree.** `Isolate.spawn` starts fresh;
+  nothing about the parent zone — including this print capture — crosses
+  into it. A `print()` inside the spawned isolate's entry point is not
+  captured. Call `capturePrints` again inside the isolate if you need it
+  there too.
+- **One `print()` call is one event, newlines and all.** `print('a\nb\nc')`
+  produces a single log line whose `msg` contains the embedded `\n`
+  characters — it is not split into three events. If a library you're
+  capturing prints multi-line blocks (a stack trace, a formatted table),
+  expect one event holding all of it.
+
+### Why prints from the logging pipeline don't loop back in
+
+`ConsoleSink.usingPrint()` renders each event by calling `print()` itself.
+Without a guard, that print would be captured as a *new* event, whose sink
+would print again to render *that*, captured again, forever. `capturePrints`
+tracks a `logging` flag: while a captured line is being handed to the
+logger, any print made *during* that call — which can only be the logging
+pipeline's own — is sent straight to the console and not re-captured.
+
+The failure mode this prevents is not hypothetical. The same handler with
+the guard removed, run once against a single real print call:
+
+```text
+the one real print call
+[captured] the one real print call
+[captured] [captured] the one real print call
+[captured] [captured] [captured] the one real print call
+...
+```
+
+Unbounded, since each simulated "capture" prints, and that print gets
+captured again. The real implementation cannot do this — the guard makes
+capture strictly non-recursive regardless of what sinks are attached.
+
+### Telling captured lines apart later
+
+Every captured event carries `lg: "print"` (or your `loggerName`) and
+`tags: ["print"]`, specifically so you can find and eventually remove them:
+`ailog_digest`'s digest groups by logger, so they show up separately from
+real application events, and `LogFilter(loggers: {'print'})` isolates just
+them when reading the file back. `loggers` is an allow-list — to *exclude*
+captured prints instead, filter on `!event.tags.contains('print')` yourself,
+or reduce `capturePrints`'s scope by wrapping only the code you haven't
+migrated yet rather than all of `main`.
 
 ## Per-subsystem loggers
 

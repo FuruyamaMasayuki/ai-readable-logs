@@ -75,6 +75,15 @@ reaches the log file otherwise. Captured lines are tagged `print` and carry
 the ambient trace like any other event. Set `forwardPrintsToConsole: false`
 if you attach a `ConsoleSink`, or each line appears twice.
 
+This works by installing a `Zone`, so it applies to a `print()` anywhere
+inside `runAppGuarded`'s callback — including one made deep inside a
+dependency — with no per-package setup. It does **not** reach a
+`compute()` call or anything run via `Isolate.spawn`/`Isolate.run`: those
+start a fresh isolate with its own zone tree, so prints made there need
+their own `capturePrints` call inside that isolate. See
+[ailog's README](../ailog/README.md#how-it-actually-works) for the
+mechanism in full, including what is and isn't captured.
+
 ### Console output on a device
 
 `ConsoleSink` writes to `stdout` by default, which on a Flutter device
