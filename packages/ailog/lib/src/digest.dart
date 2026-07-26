@@ -34,16 +34,31 @@ import 'normalizer.dart';
 /// can't be attributed to a request, so each is counted as its own incident
 /// — an over-count, but a safe direction, and a reason to use traces.
 class ErrorGroup {
+  /// Starts a group from the first event seen with [fingerprint]. Feed the
+  /// rest, including this one, through [add].
   ErrorGroup({required this.fingerprint, required this.first});
 
+  /// The grouping key — a hash over the error type and its normalized
+  /// application stack frames. Stable across occurrences whose messages and
+  /// line numbers differ, which is what makes "the same bug" countable.
   final String fingerprint;
+
+  /// The earliest event seen for this fingerprint. Its type, message and
+  /// frames are the ones reported for the group.
   final LogEvent first;
 
   /// Raw number of log events with this fingerprint.
   int occurrences = 0;
 
+  /// Timestamp of the earliest occurrence.
   DateTime? firstSeen;
+
+  /// Timestamp of the latest occurrence. With [firstSeen] it distinguishes a
+  /// burst from a slow drip — a distinction ranking by count alone erases.
   DateTime? lastSeen;
+
+  /// The most recent occurrence, used to report the context an error carries
+  /// *now* rather than when it first appeared.
   LogEvent? lastEvent;
 
   /// Distinct traces this error appeared in. Bounded by [maxRetainedTraceIds]
@@ -51,6 +66,9 @@ class ErrorGroup {
   /// [incidents] stays accurate past that bound via [_untracedIncidents] and
   /// [_distinctTraceCount].
   final Set<String> traceIds = {};
+
+  /// Which subsystems logged this error. More than one usually means the same
+  /// failure was re-logged as it propagated outward.
   final Set<String> loggers = {};
 
   /// How many trace ids are kept as samples. Beyond this, only the count is
@@ -71,6 +89,12 @@ class ErrorGroup {
   /// whichever actually has context to show.
   LogEvent? chainSource;
 
+  /// Folds one occurrence into the group, updating every count and sample.
+  ///
+  /// [event] must already have been matched to this [fingerprint]. Safe to
+  /// call any number of times, including for events that arrive out of
+  /// chronological order — the first/last bookkeeping compares timestamps
+  /// rather than assuming order.
   void add(LogEvent event) {
     occurrences++;
     firstSeen = firstSeen == null || event.time.isBefore(firstSeen!)
@@ -125,6 +149,11 @@ class ErrorGroup {
   /// oldest is evicted first.
   final Set<String> _recentOverflow = <String>{};
 
+  /// The group as JSON, for `--format json`.
+  ///
+  /// Set [includeChain] to `false` to leave out `lastChain`, which is by far
+  /// the largest field here — worth dropping when the digest is being kept
+  /// small and the chain is already visible elsewhere.
   Map<String, Object?> toJson({bool includeChain = true}) => {
         'fingerprint': fingerprint,
         'type': first.error?.type,
@@ -164,9 +193,12 @@ String _renderContext(Map<String, Object?> context) =>
 /// rounding error next to the events themselves — and restores exactly the
 /// kind of evidence summarization is worst at preserving.
 class MessageShape {
+  /// Starts a shape counter. [count] begins at 0; the builder increments it.
   MessageShape(
       {required this.logger, required this.shape, required this.level});
 
+  /// Which subsystem emits this shape. Part of the identity, so the same
+  /// wording from two subsystems is counted separately.
   final String logger;
 
   /// The message with numbers, ids, paths and quoted strings replaced by
@@ -175,8 +207,12 @@ class MessageShape {
 
   /// Highest level seen for this shape.
   LogLevel level;
+
+  /// How many events matched this shape. The whole point: `40` against `9`
+  /// for a paired acquire/release is a diagnosis one line long.
   int count = 0;
 
+  /// The shape as JSON, for `--format json`.
   Map<String, Object?> toJson() => {
         'logger': logger,
         'shape': shape,
@@ -199,13 +235,23 @@ class MessageShape {
 /// A reader — human or model — would take that as the whole story and
 /// reason about rates and totals from it.
 class SequenceCoverage {
+  /// Starts tracking coverage for one session. One instance per distinct
+  /// `ses` value, since `seq` is only comparable within a session.
   SequenceCoverage(this.sessionId);
 
+  /// The `ses` value these numbers belong to.
   final String sessionId;
+
+  /// Smallest `seq` seen. Anything below it was written and then lost.
   int? lowest;
+
+  /// Largest `seq` seen.
   int? highest;
+
+  /// How many events from this session are actually in hand.
   int present = 0;
 
+  /// Records one event's `seq`. Order-independent.
   void add(int seq) {
     present++;
     if (lowest == null || seq < lowest!) lowest = seq;
@@ -226,8 +272,12 @@ class SequenceCoverage {
     return expected > present ? expected - present : 0;
   }
 
+  /// Everything unaccounted for in this session — [missingBefore] plus
+  /// [missingWithin]. This is the number the digest reports as
+  /// "at least N more events existed".
   int get missingTotal => missingBefore + missingWithin;
 
+  /// The coverage figures as JSON, for `--format json`.
   Map<String, Object?> toJson() => {
         'session': sessionId,
         'present': present,
@@ -243,14 +293,27 @@ class SequenceCoverage {
 /// A counter that climbs to `max=22` against a configured ceiling of 20 is a
 /// diagnosis by itself, and it is invisible in any per-error view.
 class NumericField {
+  /// Starts tracking the context key [key].
   NumericField(this.key);
 
+  /// The context key being tracked, e.g. `'poolSize'`.
   final String key;
+
+  /// Smallest value seen.
   num? min;
+
+  /// Largest value seen — the one that catches a ceiling being exceeded.
   num? max;
+
+  /// Most recent value, which for a gauge is the state the program was left
+  /// in when the log ends.
   num? last;
+
+  /// How many events carried this key. A low count next to a large event
+  /// total means the field is rare, so its range says less.
   int count = 0;
 
+  /// Folds one value in. Order matters only for [last].
   void add(num value) {
     count++;
     min = min == null || value < min! ? value : min;
@@ -258,12 +321,18 @@ class NumericField {
     last = value;
   }
 
+  /// The range as JSON, for `--format json`.
   Map<String, Object?> toJson() =>
       {'key': key, 'min': min, 'max': max, 'last': last, 'n': count};
 }
 
 /// Aggregated view of one log file (or a time-bounded slice of it).
 class Digest {
+  /// Assembles a digest from already-computed parts.
+  ///
+  /// Built by [DigestBuilder] in normal use — reach for this constructor only
+  /// when producing a digest from something other than a stream of
+  /// [LogEvent]s.
   Digest({
     required this.totalEvents,
     required this.levelCounts,
@@ -278,7 +347,14 @@ class Digest {
     this.coverage = const [],
   });
 
+  /// How many events were successfully parsed and folded in.
+  ///
+  /// Not necessarily how many the program emitted — see [missingEvents],
+  /// which is the number that says whether this is the whole story.
   final int totalEvents;
+
+  /// Event count per level. Levels with no events are absent rather than
+  /// present with a zero.
   final Map<LogLevel, int> levelCounts;
 
   /// Every distinct message shape with its count, most frequent first.
@@ -318,13 +394,28 @@ class Digest {
   /// Sorted by [ErrorGroup.incidents] descending — distinct failures, not raw
   /// log lines. See [ErrorGroup] for why those differ.
   final List<ErrorGroup> errorGroups;
+
+  /// Every subsystem that produced at least one event.
   final Set<String> loggers;
+
+  /// `(earliest, latest)` event timestamp, or `(null, null)` for an empty
+  /// digest. Divide a count by this span to get a rate — but check
+  /// [missingEvents] first, or the rate is wrong.
   final (DateTime?, DateTime?) timeRange;
 
   /// Events skipped because they failed to parse (header lines, truncated
   /// writes). Reported so the digest never silently looks complete.
   final int droppedEvents;
 
+  /// The digest as JSON — what `ailog_digest --format json` writes.
+  ///
+  /// [maxGroups] bounds how many error groups appear under `topErrors`. They
+  /// are already sorted by [ErrorGroup.incidents], so the cut falls on the
+  /// least frequent; `summary.errorGroupCount` still reports the true total,
+  /// so a truncated list never reads as a complete one.
+  ///
+  /// Prefer [toMarkdown] when a model or a person is reading it directly.
+  /// This form is for a program.
   Map<String, Object?> toJson({int maxGroups = 20}) => {
         'summary': {
           'totalEvents': totalEvents,
@@ -540,6 +631,8 @@ bool _sameContext(Map<String, Object?> a, Map<String, Object?> b) {
 /// Streams a JSONL file and builds a [Digest] without holding every event in
 /// memory — only the aggregates and, per error group, the first/last sample.
 class DigestBuilder {
+  /// Creates an empty builder. Feed it with [addLine] or [addEvent], then
+  /// call [build].
   DigestBuilder();
 
   int _total = 0;
@@ -599,6 +692,12 @@ class DigestBuilder {
   /// rather than growing without limit.
   static const int maxTrackedSessions = 64;
 
+  /// Folds one already-parsed event into the aggregates.
+  ///
+  /// Use this when the events are in memory (a `MemorySink`, a test) rather
+  /// than in a file; [addLine] parses and delegates here. Nothing is retained
+  /// per event beyond the aggregates and a first/last sample per error group,
+  /// so memory stays bounded no matter how many events are fed in.
   void addEvent(LogEvent event) {
     _total++;
     _levelCounts[event.level] = (_levelCounts[event.level] ?? 0) + 1;
@@ -681,6 +780,11 @@ class DigestBuilder {
     }
   }
 
+  /// Produces the [Digest] from everything fed in so far.
+  ///
+  /// Non-destructive: the builder keeps its state, so you can add more events
+  /// and build again. Error groups come out sorted by
+  /// [ErrorGroup.incidents] and message shapes by count, both descending.
   Digest build() {
     // Rank by distinct failures, not raw log lines: a bug logged once per
     // request outranks one logged four times within a single request.

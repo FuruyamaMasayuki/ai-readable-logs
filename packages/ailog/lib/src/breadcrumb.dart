@@ -12,7 +12,13 @@ library;
 import 'log_level.dart';
 import 'sanitizer.dart';
 
+/// One recorded event, held in memory until an error pulls it into a chain.
 class Breadcrumb {
+  /// Records one event for possible later inclusion in a causal chain.
+  ///
+  /// [context] is shallow-copied, so mutating the caller's map afterwards
+  /// does not change what the breadcrumb reports. Nothing is sanitized here
+  /// — see [render].
   Breadcrumb({
     required this.time,
     required this.level,
@@ -27,10 +33,22 @@ class Breadcrumb {
         // which is the same caveat any deferred-rendering logger carries.
         context = context.isEmpty ? const {} : Map<String, Object?>.of(context);
 
+  /// When the event happened. [render] converts this into an offset relative
+  /// to the error that pulled the breadcrumb in.
   final DateTime time;
+
+  /// Severity of the recorded event, usually below the sink's threshold.
   final LogLevel level;
+
+  /// The raw message — **not** yet redacted. See [render].
   final String message;
+
+  /// Which subsystem recorded it. Omitted from the rendered entry when it is
+  /// the default `'app'`, since a chain is mostly one subsystem's events.
   final String logger;
+
+  /// The event's context at record time, shallow-copied and **not** yet
+  /// redacted. See [render].
   final Map<String, Object?> context;
 
   /// Renders this breadcrumb as a chain entry, applying [sanitizer] now.

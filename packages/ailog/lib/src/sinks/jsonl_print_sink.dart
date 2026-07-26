@@ -32,6 +32,7 @@ import 'log_sink.dart';
 /// see [write] — and there is no `_hdr` legend line unless you add one
 /// yourself, since there is no "start of file" to write it at.
 class JsonlPrintSink implements LogSink {
+  /// Creates a sink that prints one JSONL line per event.
   JsonlPrintSink({this.write = print});
 
   /// Where each line goes. Defaults to `print`.

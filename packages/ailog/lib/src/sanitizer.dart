@@ -14,6 +14,9 @@ import 'redaction.dart';
 
 /// Size bounds applied to every logged value.
 class SanitizerLimits {
+  /// Creates a set of bounds. `const`, so a custom configuration is free.
+  ///
+  /// See [compact] and [verbose] for the two ready-made sets.
   const SanitizerLimits({
     this.maxStringLength = 512,
     this.maxListItems = 20,
@@ -37,18 +40,34 @@ class SanitizerLimits {
     maxDepth: 8,
   );
 
+  /// Longest string kept. Beyond this the value is truncated and marked, so
+  /// a stray 2 MB response body cannot dominate a file.
   final int maxStringLength;
+
+  /// How many list elements are kept before the rest are summarized as a
+  /// count.
   final int maxListItems;
+
+  /// How many map entries are kept before the rest are summarized as a count.
   final int maxMapEntries;
+
+  /// How far into nested structures to descend. Deeper values are replaced
+  /// with a placeholder — which is also what stops a cyclic object graph
+  /// from looping forever.
   final int maxDepth;
 }
 
 /// Applies [Redactor] and [SanitizerLimits] to a value tree.
 class Sanitizer {
+  /// Creates a sanitizer. Defaults to a fresh [Redactor] and the standard
+  /// [SanitizerLimits].
   Sanitizer({Redactor? redactor, this.limits = const SanitizerLimits()})
       : redactor = redactor ?? Redactor();
 
+  /// Finds and masks secrets in strings.
   final Redactor redactor;
+
+  /// Size bounds applied while walking a value.
   final SanitizerLimits limits;
 
   /// Sanitizes a top-level context map.

@@ -4,3 +4,6 @@ linter:
   rules:
     - prefer_single_quotes
     - unawaited_futures
+    # See ailog's analysis_options.yaml — enforced so the API reference
+    # cannot quietly go stale.
+    - public_member_api_docs

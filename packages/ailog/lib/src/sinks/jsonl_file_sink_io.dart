@@ -37,6 +37,14 @@ import 'log_sink.dart';
 /// easy to hit by copying an example that only calls [flush]; if a Dart
 /// script using this sink won't exit, this is why.
 class JsonlFileSink implements LogSink {
+  /// Opens (or creates) the log file at [path].
+  ///
+  /// A path that cannot be opened does not throw here — the sink degrades to
+  /// a no-op and reports through [onError], because a bad log path must not
+  /// take down app startup. Parent directories are created as needed.
+  ///
+  /// The defaults bound disk use at [maxBytes] × [maxFiles] — 40 MiB — which
+  /// is generous for a server and worth lowering for a phone.
   JsonlFileSink({
     required String path,
     this.maxBytes = 8 * 1024 * 1024,

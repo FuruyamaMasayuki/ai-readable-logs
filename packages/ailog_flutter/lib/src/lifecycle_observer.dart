@@ -22,6 +22,10 @@ import 'package:flutter/widgets.dart';
 /// while remaining available as breadcrumbs — the same trade the rest of this
 /// package makes. Raise [level] to `info` if you want them written.
 class AilogLifecycleObserver with WidgetsBindingObserver {
+  /// Creates the observer. Nothing is recorded until [install] is called.
+  ///
+  /// Events go to a `lifecycle` child of [logger], so they are attributable
+  /// in the log without needing a separate sink.
   AilogLifecycleObserver(Logger logger, {this.level = LogLevel.trace})
       : _logger = logger.child('lifecycle');
 

@@ -67,6 +67,8 @@ String _hex8(int value) => value.toRadixString(16).padLeft(8, '0');
 ///
 /// Ids are lowercase hex so they stay cheap to tokenize and easy to grep.
 class IdGenerator {
+  /// Creates a generator. Pass [random] only in tests, to make ids
+  /// reproducible; the default uses a secure source where one exists.
   IdGenerator({Random? random}) : _random = random ?? _secureOrFallback();
 
   final Random _random;
@@ -110,7 +112,13 @@ class IdGenerator {
 class SequenceCounter {
   int _value = 0;
 
+  /// Returns the next number, starting at 1.
+  ///
+  /// Starting at 1 rather than 0 is what makes loss computable: a file whose
+  /// lowest `seq` is *n* is missing exactly *n − 1* earlier events. See
+  /// `SequenceCoverage`.
   int next() => ++_value;
 
+  /// The most recently issued number, or 0 before the first [next] call.
   int get current => _value;
 }

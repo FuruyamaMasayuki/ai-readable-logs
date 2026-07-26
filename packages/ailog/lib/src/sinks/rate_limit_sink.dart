@@ -19,6 +19,9 @@ import 'log_sink.dart';
 /// a single summary event reports how many were suppressed, so the volume is
 /// never silently lost.
 class RateLimitSink implements LogSink {
+  /// Wraps [inner] with per-key rate limiting.
+  ///
+  /// Pass [clock] only in tests, to drive the window without waiting.
   RateLimitSink(
     this.inner, {
     this.window = const Duration(seconds: 10),
@@ -27,6 +30,8 @@ class RateLimitSink implements LogSink {
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
+  /// The wrapped destination. Suppressed events never reach it; the summary
+  /// event does.
   final LogSink inner;
 
   /// How long one key's budget lasts.

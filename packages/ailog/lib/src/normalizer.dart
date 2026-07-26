@@ -6,6 +6,8 @@ import 'ids.dart';
 
 /// A single parsed stack frame, reduced to what an analyst actually reads.
 class StackFrame {
+  /// Creates a frame from already-split parts. [parseStackTrace] produces
+  /// these; there is rarely a reason to build one by hand.
   const StackFrame({
     required this.location,
     required this.member,

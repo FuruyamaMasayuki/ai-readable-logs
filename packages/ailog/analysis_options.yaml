@@ -5,3 +5,7 @@ linter:
     - prefer_single_quotes
     - unawaited_futures
     - avoid_print
+    # CI runs `dart analyze --fatal-infos`, so an undocumented public member
+    # fails the build. The API reference is what a user reads on hover, and
+    # it only stays complete if something enforces it.
+    - public_member_api_docs

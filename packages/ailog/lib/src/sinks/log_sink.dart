@@ -24,9 +24,25 @@ abstract interface class LogSink {
 /// A failing sink is isolated: the others still receive the event, and the
 /// failure is reported once via [onSinkError] rather than on every line.
 class MultiSink implements LogSink {
+  /// Fans every event out to [sinks], in order.
+  ///
+  /// The sinks are independent — they do not have to agree on what to keep.
+  /// Wrap one in a [LevelFilterSink] to give it its own threshold.
   MultiSink(this.sinks, {this.onSinkError});
 
+  /// The destinations, in the order they receive each event.
   final List<LogSink> sinks;
+
+  /// Called once when a sink first throws from `add`.
+  ///
+  /// That sink is then skipped for the rest of the process: a disk that
+  /// filled up would otherwise throw on every subsequent line, and a handler
+  /// that logs the failure would recurse. The other sinks are unaffected, so
+  /// a broken file sink does not cost you the console too.
+  ///
+  /// Leave it `null` to fail silently, which is the safe default for a
+  /// logger — but wiring it to a `print` while developing is worth it, since
+  /// otherwise a misconfigured sink looks exactly like an idle one.
   final void Function(LogSink sink, Object error, StackTrace stack)?
       onSinkError;
   final Set<LogSink> _broken = Set.identity();
@@ -81,11 +97,17 @@ class MultiSink implements LogSink {
 /// final text = buffer.export(LogFilter.forAi).toReport();
 /// ```
 class MemorySink implements LogSink {
+  /// Retains up to [capacity] of the most recent events.
   MemorySink({this.capacity = 1000});
 
   /// Most recent events retained. Older ones are discarded, so a long-running
   /// app has a bounded, rolling window rather than a leak.
   final int capacity;
+
+  /// The retained events, oldest first.
+  ///
+  /// Exposed directly so tests can assert on it. For anything user-facing
+  /// prefer [export], which applies a filter and reports what it dropped.
   final List<LogEvent> events = [];
 
   /// Applies [filter] and returns the survivors together with whole-log
@@ -115,6 +137,7 @@ class MemorySink implements LogSink {
   @override
   Future<void> close() async {}
 
+  /// Discards every retained event. The sink stays usable.
   void clear() => events.clear();
 }
 
@@ -123,9 +146,17 @@ class MemorySink implements LogSink {
 /// Typical use: everything goes to the JSONL file, only warnings and above
 /// reach the console.
 class LevelFilterSink implements LogSink {
+  /// Passes only events at [minimumLevel] or above through to [inner].
   LevelFilterSink(this.inner, this.minimumLevel);
 
+  /// The wrapped destination. [flush] and [close] are forwarded to it, so
+  /// wrapping a sink does not change how it is shut down.
   final LogSink inner;
+
+  /// The threshold for this destination alone.
+  ///
+  /// Independent of the `Logger`'s own `minimumLevel`, which still decides
+  /// what gets emitted at all — this can only narrow that further.
   final LogLevel minimumLevel;
 
   @override

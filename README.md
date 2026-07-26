@@ -2,6 +2,24 @@
 
 **Logs designed to be read by an AI, not scrolled by a human.**
 
+> ### 🚧 Under active development — pre-1.0, not yet on pub.dev
+>
+> Everything documented here is implemented and tested (352 tests for
+> `ailog`, 29 for `ailog_flutter`, run on every push), but the packages are
+> **`0.x`** and the API is **not stable yet**. Expect breaking changes in
+> minor versions until `1.0.0`; the [CHANGELOG](packages/ailog/CHANGELOG.md)
+> lists them, and this one has already renamed and removed public API.
+>
+> **Reasonable to use now** for your own apps and internal tools — pin an
+> exact version, read the changelog before upgrading. **Not yet reasonable**
+> to depend on from a package other people install, since a breaking change
+> here becomes a breaking change for them.
+>
+> Not yet done: the iOS Swift side has never been compiled by CI (no macOS
+> runner), and neither package has been published, so `pub add ailog` does
+> not work — use the git dependency shown below. Bug reports and API
+> feedback are the most useful thing you can send right now.
+
 Structured logging for Dart and Flutter. One JSON object per line (JSONL),
 where **every line carries enough context to diagnose on its own** — the
 events that led up to it, where the failure came from, and a stable

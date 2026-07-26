@@ -12,6 +12,11 @@ import 'package:flutter/widgets.dart';
 
 /// A [NavigatorObserver] that logs push/pop/remove/replace as `info` events.
 class AilogNavigatorObserver extends NavigatorObserver {
+  /// Creates the observer. Add it to `MaterialApp.navigatorObservers`.
+  ///
+  /// Routes are named by `RouteSettings.name`, falling back to the route's
+  /// runtime type — so naming your routes is what makes this readable.
+  /// Events go to a `navigation` child of [logger].
   AilogNavigatorObserver(Logger logger) : _logger = logger.child('navigation');
 
   final Logger _logger;

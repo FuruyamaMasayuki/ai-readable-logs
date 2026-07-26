@@ -45,6 +45,12 @@ Map<String, Object?> schemaLegend() => {
 
 /// Structured description of a thrown object.
 class ErrorInfo {
+  /// Creates an [ErrorInfo] from already-computed parts.
+  ///
+  /// Prefer [ErrorInfo.from], which derives all of them from a caught object
+  /// and its stack trace. This constructor exists for callers that already
+  /// have the pieces — the native bridge in `ailog_flutter`, which receives
+  /// them over a MethodChannel, and [fromJson] when reading a file back.
   ErrorInfo({
     required this.type,
     required this.message,
@@ -55,6 +61,12 @@ class ErrorInfo {
 
   /// Runtime type of the thrown object, e.g. `SocketException`.
   final String type;
+
+  /// The thrown object's `toString()`, after redaction.
+  ///
+  /// Unlike [fingerprint] this still contains the varying parts — the host
+  /// that refused the connection, the id that was not found — which is what
+  /// makes it worth reading once the fingerprint has told you which bug it is.
   final String message;
 
   /// Stable grouping key. Same bug, same fingerprint.
@@ -66,6 +78,9 @@ class ErrorInfo {
   /// Nested cause, when the error wraps another one.
   final ErrorInfo? cause;
 
+  /// The `err` object as it appears on the wire: `t`, `m`, `fp`, `fr`,
+  /// `cause`. Empty frames and a null cause are omitted rather than written
+  /// as empty values, so a line costs nothing for what it does not have.
   Map<String, Object?> toJson() => {
         't': type,
         'm': message,
@@ -74,6 +89,12 @@ class ErrorInfo {
         if (cause != null) 'cause': cause!.toJson(),
       };
 
+  /// Reads back an `err` object written by [toJson], recursing into `cause`.
+  ///
+  /// Returns `null` for anything that is not a map, so a caller can pass
+  /// `json['err']` straight in without checking whether the key was present.
+  /// Missing fields fall back to `'Error'` / `''` rather than throwing: a
+  /// tool reading a log file should degrade, not abort on one bad line.
   static ErrorInfo? fromJson(Object? json) {
     if (json is! Map) return null;
     return ErrorInfo(
@@ -135,6 +156,13 @@ class ErrorInfo {
 
 /// A single log record.
 class LogEvent {
+  /// Creates a log record directly.
+  ///
+  /// Application code does not normally call this — `Logger`'s level methods
+  /// build the event, fill in [sessionId] and [sequence], pick up the
+  /// ambient trace, and redact [context] before any sink sees it. Construct
+  /// one by hand only when feeding a `LogSink` from somewhere other than a
+  /// `Logger`, and remember that nothing sanitizes what you pass here.
   LogEvent({
     required this.time,
     required this.level,
@@ -152,24 +180,79 @@ class LogEvent {
     this.chain = const [],
   });
 
+  /// When the event was recorded. Serialized to `ts` as ISO-8601 **UTC**,
+  /// so lines from devices in different time zones sort against each other.
   final DateTime time;
+
+  /// Severity (`lvl`). See [LogLevel] for what each one is for.
   final LogLevel level;
+
+  /// The message (`msg`), after redaction.
   final String message;
+
+  /// Which subsystem emitted this (`lg`) — `'app'` unless the event came
+  /// from a `logger.child('db')`. Groups a file by area without needing
+  /// separate files per subsystem.
   final String logger;
+
+  /// Identifies one process run (`ses`). Constant for the life of a
+  /// `Logger`, and regenerated on the next start.
+  ///
+  /// It is what makes a rotated or concatenated file interpretable: two
+  /// events with different `ses` values came from different runs, however
+  /// close their timestamps are.
   final String sessionId;
+
+  /// Monotonic counter within one [sessionId] (`seq`), starting at 1.
+  ///
+  /// Restores exact order for events that share a session even when their
+  /// timestamps collide, and — because it has no gaps by construction —
+  /// lets a reader compute how many events are *missing* from a file that
+  /// rotation truncated. `Digest` reports exactly that.
+  ///
+  /// Not comparable across different [sessionId] values.
   final int sequence;
+
+  /// The trace this event belongs to (`tr`), or `null` outside any scope.
+  ///
+  /// One trace = one logical operation: a request, a tap, a background job.
+  /// Set automatically from the ambient `LogScope`; see `runWithScope`.
   final String? traceId;
+
+  /// The span within [traceId] this event belongs to (`sp`), or `null`.
   final String? spanId;
+
+  /// The enclosing span (`psp`), for nested spans. Lets a reader rebuild the
+  /// tree of steps from flat lines.
   final String? parentSpanId;
+
+  /// Structured fields (`ctx`) — already redacted by the time an event
+  /// exists. Merged from the ambient scope's context and the call's own,
+  /// with the call's winning on a key collision.
   final Map<String, Object?> context;
+
+  /// Free-form labels (`tags`). The package sets `print` on captured
+  /// `print()` output and `interaction` on `logger.interaction()` calls.
   final List<String> tags;
+
+  /// The error this event describes (`err`), or `null` for a plain message.
   final ErrorInfo? error;
+
+  /// How long the completed span took, in milliseconds (`dur`). Only set on
+  /// span-completion events.
   final int? durationMs;
 
   /// Events that preceded this one in the same trace. Only populated for
   /// error-ish levels; see `CausalBuffer`.
   final List<Map<String, Object?>> chain;
 
+  /// The event as one JSON object — exactly the shape `JsonlFileSink` writes
+  /// as a line.
+  ///
+  /// Optional keys are omitted when empty rather than emitted as `null`,
+  /// which is most of why a line stays small. `schemaLegend` documents every
+  /// key, and is written as the first line of each file so the format
+  /// explains itself to whoever (or whatever) reads it.
   Map<String, Object?> toJson() => {
         'ts': time.toUtc().toIso8601String(),
         'lvl': level.wireName,

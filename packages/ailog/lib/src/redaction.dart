@@ -20,6 +20,12 @@ import 'ids.dart';
 
 /// One masking rule.
 class RedactionRule {
+  /// Defines a rule. `const`, so a custom rule list costs nothing to declare.
+  ///
+  /// [pattern] finds candidates; [validate] and [requiresSubstring] exist to
+  /// cut false positives, which matter more here than missed matches — a
+  /// rule that eats an order id makes the log useless in exactly the case
+  /// you needed it.
   const RedactionRule({
     required this.name,
     required this.pattern,
@@ -200,6 +206,17 @@ List<String> sensitiveKeyWords(String key) {
 
 /// Applies [RedactionRule]s to strings and to map keys.
 class Redactor {
+  /// Creates a redactor.
+  ///
+  /// Omit [rules] to get the built-in set. Passing a list **replaces** it
+  /// rather than adding to it — start from `builtInRedactionRules` and
+  /// append if you meant to extend.
+  ///
+  /// [salt] is randomized per process by default, so the same email produces
+  /// the same token within one run and a different one across runs. Pin it
+  /// to a fixed string only when you deliberately want tokens to correlate
+  /// across runs, accepting that this makes them vulnerable to a dictionary
+  /// attack by anyone holding the salt.
   Redactor({
     List<RedactionRule>? rules,
     RegExp? sensitiveKeyPattern,
@@ -214,7 +231,14 @@ class Redactor {
   factory Redactor.disabled() =>
       Redactor(rules: const [], sensitiveKeyPattern: RegExp(r'^$'));
 
+  /// The active rules, applied in order.
   final List<RedactionRule> rules;
+
+  /// Context keys whose **value** is masked regardless of what it looks
+  /// like — `password`, `token`, `secret` and friends by default.
+  ///
+  /// This is the backstop for secrets no pattern can recognize: a session
+  /// token is just a string, and only its key says otherwise.
   final RegExp sensitiveKeyPattern;
   final String _salt;
 

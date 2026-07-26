@@ -14,6 +14,8 @@ import 'sanitizer.dart';
 
 /// A bounded ring of recent breadcrumbs, partitioned by trace.
 class CausalBuffer {
+  /// Creates a buffer retaining [perTraceCapacity] breadcrumbs for each of at
+  /// most [maxTraces] traces — so worst-case memory is the product of the two.
   CausalBuffer({this.perTraceCapacity = 20, this.maxTraces = 64});
 
   /// How many recent breadcrumbs are retained per trace.
@@ -43,6 +45,12 @@ class CausalBuffer {
   /// indistinguishable from a trace that genuinely had no history.
   int get evictedTraces => _evictedTraces;
 
+  /// Retains [breadcrumb] under [traceId], evicting the oldest breadcrumb in
+  /// that trace once it is full.
+  ///
+  /// Breadcrumbs without a trace share one bucket. They are still usable —
+  /// an untraced error gets an untraced chain — but concurrent operations
+  /// interleave there, which is the practical argument for using traces.
   void record(Breadcrumb breadcrumb, {String? traceId}) {
     final key = traceId ?? _noTrace;
     // Re-insert to move this trace to the most-recently-used end.
@@ -97,6 +105,7 @@ class CausalBuffer {
     ];
   }
 
+  /// Drops every retained breadcrumb and resets [evictedTraces].
   void clear() {
     _byTrace.clear();
     _evictedTraces = 0;

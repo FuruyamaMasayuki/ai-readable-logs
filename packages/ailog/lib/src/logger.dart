@@ -301,6 +301,8 @@ class Logger {
   /// The level at or above which events reach the sink.
   LogLevel get minimumLevel => _core.minimumLevel;
 
+  /// Identifies this process run. Written as `ses` on every event, and
+  /// shared with any child logger.
   String get sessionId => _core.sessionId;
 
   // --- Trace / span lifecycle -------------------------------------------
@@ -383,6 +385,10 @@ class Logger {
   // way to log a call site.
   //
 
+  /// Logs at [LogLevel.trace] — fine-grained detail.
+  ///
+  /// Usually below a production `minimumLevel`, but still recorded as a
+  /// breadcrumb, so these reappear in the causal chain of a later error.
   void trace(
     String message, {
     Map<String, Object?>? context,
@@ -390,6 +396,7 @@ class Logger {
   }) =>
       log(LogLevel.trace, message, context: context, tags: tags);
 
+  /// Logs at [LogLevel.debug] — developer-facing detail.
   void debug(
     String message, {
     Map<String, Object?>? context,
@@ -397,6 +404,8 @@ class Logger {
   }) =>
       log(LogLevel.debug, message, context: context, tags: tags);
 
+  /// Logs at [LogLevel.info] — something the program did that a reader would
+  /// want to know about. The usual production floor.
   void info(
     String message, {
     Map<String, Object?>? context,
@@ -404,6 +413,7 @@ class Logger {
   }) =>
       log(LogLevel.info, message, context: context, tags: tags);
 
+  /// Logs at [LogLevel.warn] — recovered from, but suspicious.
   void warn(
     String message, {
     Map<String, Object?>? context,
@@ -753,8 +763,18 @@ class Logger {
   static const String _unresolvedCallSite =
       '→ <call site unavailable: obfuscated or non-symbolic build>';
 
+  /// Pushes anything buffered in the sink to its destination.
+  ///
+  /// **Not enough on its own to end a program.** `JsonlFileSink` runs a
+  /// periodic timer to auto-flush, and a live timer keeps the isolate alive
+  /// — so a `main()` that flushes and returns hangs instead of exiting. Call
+  /// [close].
   Future<void> flush() => _core.sink.flush();
 
+  /// Flushes, then releases the sink and everything it holds open.
+  ///
+  /// This is the one to call before a process ends. The logger is unusable
+  /// afterwards: further calls reach a closed sink.
   Future<void> close() => _core.sink.close();
 }
 

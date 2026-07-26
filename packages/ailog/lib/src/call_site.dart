@@ -13,6 +13,7 @@ import 'normalizer.dart';
 
 /// The resolved location of a log call.
 class CallSite {
+  /// Creates a call site from an already-resolved location and member.
   const CallSite({required this.location, required this.member});
 
   /// e.g. `package:my_app/checkout/cart.dart:42`

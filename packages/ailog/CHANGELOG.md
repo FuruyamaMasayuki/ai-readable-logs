@@ -1,3 +1,11 @@
+# Changelog
+
+This package is **pre-1.0 and under active development**. Following
+[semver](https://dart.dev/tools/pub/versioning) for `0.x`, a **minor bump
+may break you** — the entries below marked "Changed" are the ones that do.
+Pin an exact version and read this file before upgrading. The API will not
+be considered stable until `1.0.0`.
+
 ## 0.4.0
 
 ### Changed

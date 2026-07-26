@@ -1,3 +1,9 @@
+# Changelog
+
+This package is **pre-1.0 and under active development**, and tracks
+`ailog`'s version closely — a minor bump in either may break you. Pin exact
+versions and read both changelogs before upgrading.
+
 ## 0.3.0
 
 - **A `flutter build` release now ships with logging off.** This follows

@@ -1,18 +1,30 @@
 # ailog_flutter
 
-Connects [`ailog`](../ailog) to a Flutter app. Automatically records the
+Connects [`ailog`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog) to a Flutter app. Automatically records the
 framework's error channels (`FlutterError.onError`,
 `PlatformDispatcher.onError`, `ErrorWidget.builder`) and navigation into the
 same AI-readable JSONL output — and bridges native Kotlin/Swift code into it
 too.
 
+> ### 🚧 Under active development — `0.x`, API not stable
+>
+> Implemented and covered by 29 widget/unit tests on top of `ailog`'s 352,
+> but **breaking changes land in minor versions until `1.0.0`** — read the
+> [CHANGELOG](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/CHANGELOG.md) before upgrading, and pin an exact version.
+>
+> One gap worth knowing about before you rely on it: **neither native side
+> is built by CI**, because the workflow has no macOS runner and does not run
+> a Gradle build. The Dart half of the bridge is fully tested, and
+> `android/src/main/kotlin/.../AilogWire.kt` — the fingerprinting and
+> JSONL-writing core — compiles standalone and has a JUnit test
+> (`AilogWireTest.kt`) covering hash parity with the Dart implementation.
+> The Swift files have never been through a compiler at all. If you hit an
+> iOS build error, that is why; please file it.
+
 ## Install
 
-```sh
-flutter pub add ailog ailog_flutter
-```
-
-Until the packages are on pub.dev, depend on them from the repository:
+The packages are **not on pub.dev yet**, so `flutter pub add ailog_flutter`
+will not find them. Depend on them from the repository:
 
 ```yaml
 dependencies:
@@ -85,7 +97,7 @@ dependency — with no per-package setup. It does **not** reach a
 `compute()` call or anything run via `Isolate.spawn`/`Isolate.run`: those
 start a fresh isolate with its own zone tree, so prints made there need
 their own `capturePrints` call inside that isolate. See
-[ailog's README](../ailog/README.md#how-it-actually-works) for the
+[ailog's README](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/README.md#how-it-actually-works) for the
 mechanism in full, including what is and isn't captured.
 
 ### Console output on a device
@@ -131,7 +143,7 @@ Two things worth deciding before you ship, both easy to overlook:
   `enabled: true`, or leave the release default alone and accept the blind
   spot deliberately.
 
-See [ailog's README](../ailog/README.md#debug--profile--release-builds) for
+See [ailog's README](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/README.md#debug--profile--release-builds) for
 the `const` form that compiles the sink out entirely, what a call on a
 disabled logger actually costs, and why opting back in is usually the better
 call for a package built around post-mortem analysis.
@@ -294,8 +306,8 @@ do {
 ```
 
 Working examples live in
-[`example/android/…/MainActivity.kt`](example/android/app/src/main/kotlin/dev/ailog/ailog_flutter_example/MainActivity.kt)
-and [`example/ios/Runner/AppDelegate.swift`](example/ios/Runner/AppDelegate.swift).
+[`example/android/…/MainActivity.kt`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/example/android/app/src/main/kotlin/dev/ailog/ailog_flutter_example/MainActivity.kt)
+and [`example/ios/Runner/AppDelegate.swift`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/example/ios/Runner/AppDelegate.swift).
 
 ### How it works, and what it guarantees
 
@@ -339,7 +351,7 @@ strings using the **same algorithm as Dart** (FNV-1a 64). The same error type
 with the same frames produces the same fingerprint whether it arrived over
 the channel or was written by the crash handler — verified against the Dart
 implementation with real reference values in
-[`android/src/test/kotlin/…/AilogWireTest.kt`](android/src/test/kotlin/dev/ailog/ailog_flutter/AilogWireTest.kt).
+[`android/src/test/kotlin/…/AilogWireTest.kt`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/android/src/test/kotlin/dev/ailog/ailog_flutter/AilogWireTest.kt).
 
 > The Swift port mirrors the Kotlin one exactly, but this development
 > environment has no Xcode/macOS toolchain, so it has been reviewed rather
@@ -370,7 +382,7 @@ tooling they need:
 2. **Stream it live, while you're already debugging.** `flutter run`
    mirrors the app's `print` output into your terminal in real time — the
    same channel `debugPrint` uses — over USB, with no manual pull step at
-   all. Add [`JsonlPrintSink`](../ailog/README.md#capturing-a-debug-session-as-a-file)
+   all. Add [`JsonlPrintSink`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/README.md#capturing-a-debug-session-as-a-file)
    to the sink list and capture the session:
    ```dart
    Logger.create(sink: MultiSink([fileSink, JsonlPrintSink(write: debugPrint)]))
@@ -528,11 +540,11 @@ files from its own directory; that isn't in the published log_vault yet.
 
 ## Example app
 
-[`example/`](example) is a runnable app (`flutter run`, with full `android/`
+[`example/`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/example) is a runnable app (`flutter run`, with full `android/`
 and `ios/` scaffolding). Five buttons fire the five automatic recording
 paths: navigation, caught errors, widget build errors, uncaught async
 errors, and native→Dart logging. See
-[`example/README.md`](example/README.md).
+[`example/README.md`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/example/README.md).
 
 ## Notes
 

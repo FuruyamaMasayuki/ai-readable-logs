@@ -7,13 +7,22 @@ different shapes. `ailog` commits fully to the second: one JSON object per
 line (JSONL), where **each line carries what's needed to diagnose it on its
 own**.
 
+> ### 🚧 Under active development — `0.x`, API not stable
+>
+> Implemented and covered by 352 tests, but **breaking changes land in minor
+> versions until `1.0.0`**. `0.4.0` alone replaced `fnv1a64` with
+> `fnv1a64Hex`, dropped a parameter from `shortHash`, and changed
+> `Logger.create`'s `enabled` default so a release build is silent.
+> Pin an exact version and read the
+> [CHANGELOG](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/CHANGELOG.md) before upgrading.
+>
+> Fine for your own apps and internal tools. Not yet a good dependency for a
+> package other people install.
+
 ## Install
 
-```sh
-dart pub add ailog        # or: flutter pub add ailog
-```
-
-Until the package is on pub.dev, depend on it straight from the repository:
+The package is **not on pub.dev yet**, so `dart pub add ailog` will not find
+it. Depend on it from the repository:
 
 ```yaml
 dependencies:
@@ -55,7 +64,7 @@ for when the file gets big.
 
 > **Flutter:** a relative path like `.ailog/` is not writable on a device.
 > Use `path_provider`, and see
-> [`ailog_flutter`](../ailog_flutter/README.md) for the rest of the setup:
+> [`ailog_flutter`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/README.md) for the rest of the setup:
 > ```dart
 > final dir = await getApplicationSupportDirectory();
 > JsonlFileSink(path: '${dir.path}/ailog/app.jsonl');
@@ -278,7 +287,7 @@ ERROR checkout failed [fp:7ed4a8d1]
 
 Pass the intent (`checkout_pressed`), not the button's caption — an intent
 survives copy changes and translation and groups across them. See
-[`ailog_flutter`](../ailog_flutter/README.md#user-interaction-logging) for
+[`ailog_flutter`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/README.md#user-interaction-logging) for
 app lifecycle tracking and why there is deliberately no automatic
 "log every tap".
 
@@ -416,7 +425,7 @@ is a real branch. That is the difference from the `const` form above.
 
 ### What a disabled call actually costs
 
-Measured by [`example/build_modes_example.dart`](example/build_modes_example.dart)
+Measured by [`example/build_modes_example.dart`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/example/build_modes_example.dart)
 over 200,000 calls, with a context map:
 
 | Build | Per call on a disabled logger |
@@ -859,7 +868,7 @@ Android. This is a debug-time convenience: there's no `_hdr` legend line
 (nothing marks "start of file" in a live stream), and a dropped print is a
 dropped event with no record that it happened. Reach for the real
 `JsonlFileSink`, or one of `ailog_flutter`'s other ways to get a log off a
-[real device](../ailog_flutter/README.md#getting-the-log-off-a-real-device),
+[real device](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/README.md#getting-the-log-off-a-real-device),
 when that matters more than convenience.
 
 ## Examples
@@ -868,16 +877,16 @@ All are runnable with `dart run example/<file>`.
 
 | Example | What it shows |
 |---|---|
-| [`main.dart`](example/main.dart) | **Start here.** The smallest useful setup, end to end: file + console, one trace, redaction, a failing span, then the digest |
-| [`walkthrough_example.dart`](example/walkthrough_example.dart) | The guided tour, in the order you meet things: subsystem loggers, checkpoints, then the digest and the filtered report side by side |
-| [`advanced_example.dart`](example/advanced_example.dart) | Child loggers, dev/prod sink split, custom redaction rules, `DigestBuilder` used directly |
-| [`ai_report_example.dart`](example/ai_report_example.dart) | A realistic connection-pool leak, then the three output forms — digest only, digest + events, raw JSONL — with their sizes side by side |
-| [`build_modes_example.dart`](example/build_modes_example.dart) | The three ways to restrict logging per build mode, and a measurement of what a disabled call costs |
+| [`main.dart`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/example/main.dart) | **Start here.** The smallest useful setup, end to end: file + console, one trace, redaction, a failing span, then the digest |
+| [`walkthrough_example.dart`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/example/walkthrough_example.dart) | The guided tour, in the order you meet things: subsystem loggers, checkpoints, then the digest and the filtered report side by side |
+| [`advanced_example.dart`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/example/advanced_example.dart) | Child loggers, dev/prod sink split, custom redaction rules, `DigestBuilder` used directly |
+| [`ai_report_example.dart`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/example/ai_report_example.dart) | A realistic connection-pool leak, then the three output forms — digest only, digest + events, raw JSONL — with their sizes side by side |
+| [`build_modes_example.dart`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/example/build_modes_example.dart) | The three ways to restrict logging per build mode, and a measurement of what a disabled call costs |
 
 ## Performance
 
 Numbers below are from
-[`benchmark/logging_benchmark.dart`](benchmark/logging_benchmark.dart),
+[`benchmark/logging_benchmark.dart`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/benchmark/logging_benchmark.dart),
 compiled AOT on one ordinary Linux machine. **Run it yourself** before
 trusting any of it for your context — that is what it is committed for:
 
@@ -924,7 +933,7 @@ through `droppedEvents` / `onError` rather than failing silently.
 ## Using it with Flutter
 
 For automatic `FlutterError.onError` hooks, navigation breadcrumbs and native
-(Kotlin/Swift) logging, see the [`ailog_flutter`](../ailog_flutter) add-on.
+(Kotlin/Swift) logging, see the [`ailog_flutter`](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter) add-on.
 
 ## Limitations
 

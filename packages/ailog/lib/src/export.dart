@@ -37,6 +37,10 @@ import 'normalizer.dart';
 ///
 /// Filters compose; they are applied in the order documented on each field.
 class LogFilter {
+  /// Creates a filter. `const`, and every field defaults to "keep
+  /// everything", so name only the constraints you want.
+  ///
+  /// See [LogFilter.none] and [LogFilter.forAi] for the two ready-made ones.
   const LogFilter({
     this.minimumLevel = LogLevel.trace,
     this.onlyFailedTraces = false,
@@ -261,6 +265,10 @@ class LogFilter {
 /// The result of applying a [LogFilter]: the surviving events, what was
 /// removed, and the aggregates computed over everything before filtering.
 class LogSelection {
+  /// Bundles a filter's output with the accounting that makes it honest.
+  ///
+  /// Produced by [LogFilter.apply] and by `MemorySink.export`; there is
+  /// rarely a reason to construct one directly.
   LogSelection({
     required this.events,
     required this.inputCount,
@@ -268,6 +276,7 @@ class LogSelection {
     required this.digest,
   });
 
+  /// The events that survived the filter, in their original order.
   final List<LogEvent> events;
 
   /// How many events went in, before any filtering.
@@ -279,6 +288,8 @@ class LogSelection {
   /// Aggregates over the unfiltered input. See [LogFilter.apply].
   final Digest digest;
 
+  /// How many events the filter removed in total. [droppedBy] breaks this
+  /// down by reason.
   int get droppedCount => inputCount - events.length;
 
   /// The events as JSONL — byte-identical in form to what [JsonlFileSink]

@@ -20,6 +20,13 @@ import 'log_sink.dart';
 /// ConsoleSink(write: (l) => developer.log(l))    // dart:developer
 /// ```
 class ConsoleSink implements LogSink {
+  /// Creates a console sink.
+  ///
+  /// [useColor] defaults to whether the platform looks like an ANSI-capable
+  /// terminal, so a redirected stdout does not fill a file with escape
+  /// codes. [showTraceId] prints a short trace prefix, which is what makes
+  /// interleaved concurrent operations readable; turn it off for a quieter
+  /// single-threaded CLI.
   ConsoleSink({bool? useColor, bool showTraceId = true, this.write})
       : _formatter = ConsoleFormatter(
           useColor: useColor ?? platformSupportsAnsi(),

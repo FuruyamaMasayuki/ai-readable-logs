@@ -28,6 +28,12 @@ import 'dart:async';
 import 'package:ailog/ailog.dart';
 import 'package:flutter/services.dart';
 
+/// Receives log events from Kotlin/Swift and writes them through a Dart
+/// [Logger].
+///
+/// Created by [AilogNativeBridge.install]; the constructor is private
+/// because installing is what wires up the [MethodChannel] handler, and a
+/// bridge that is not listening does nothing.
 class AilogNativeBridge {
   AilogNativeBridge._(this._channel, this._logger);
 

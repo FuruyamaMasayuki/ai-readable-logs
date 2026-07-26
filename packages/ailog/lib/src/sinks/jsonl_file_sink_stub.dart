@@ -7,6 +7,9 @@ import 'log_sink.dart';
 /// conditional imports at every call site; use `MemorySink` or a custom sink
 /// that POSTs to a collector instead.
 class JsonlFileSink implements LogSink {
+  /// Always throws [UnsupportedError]. Kept so code that mentions
+  /// `JsonlFileSink` still compiles for web; construct a different sink at
+  /// runtime instead of reaching this.
   JsonlFileSink({
     required String path,
     int maxBytes = 8 * 1024 * 1024,
@@ -20,6 +23,7 @@ class JsonlFileSink implements LogSink {
     );
   }
 
+  /// Unreachable — the constructor always throws.
   String get path => throw UnsupportedError('unreachable');
 
   @override

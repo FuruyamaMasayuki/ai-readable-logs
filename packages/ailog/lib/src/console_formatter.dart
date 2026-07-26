@@ -23,11 +23,26 @@ const Map<LogLevel, String> _levelColor = {
 
 /// Formats a [LogEvent] as one or more terminal lines.
 class ConsoleFormatter {
+  /// Creates a formatter. `const`, so a fixed configuration is free.
   const ConsoleFormatter({this.useColor = true, this.showTraceId = true});
 
+  /// Whether to wrap the level and metadata in ANSI escapes.
+  ///
+  /// Turn it off for anything that is not a real terminal — a redirected
+  /// file, logcat, the Xcode console — where the escapes show up as literal
+  /// garbage. `ConsoleSink` decides this for you by default.
   final bool useColor;
+
+  /// Whether to print a short trace prefix on each line.
+  ///
+  /// It is what makes interleaved concurrent operations readable; drop it
+  /// for a single-threaded CLI where every line belongs to the same thing.
   final bool showTraceId;
 
+  /// Renders one event as terminal-ready text.
+  ///
+  /// May return several lines: an error's frames and its causal chain are
+  /// printed indented beneath the message. No trailing newline.
   String format(LogEvent event) {
     final buffer = StringBuffer();
     final time = _formatTime(event.time);

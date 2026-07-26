@@ -16,21 +16,39 @@ import 'log_level.dart';
 /// Must be completed with [succeed] or [fail] (or use [Logger.span] /
 /// [Logger.spanSync], which do this automatically).
 class Span {
+  /// Starts a span attached to a logger, running in its own [scope]. The
+  /// clock starts now.
+  ///
+  /// Called by [Logger.startSpan]; use that, or better [Logger.span], rather
+  /// than this constructor.
   Span.fromLogger(this._logger, this._scope, this.name)
       : _startedAt = _logger.now();
 
   final Logger _logger;
   final LogScope _scope;
+
+  /// What this span is timing, e.g. `'charge_card'`.
+  ///
+  /// Becomes `"$name completed"` or `"$name failed"` in the log, so a short
+  /// verb-ish identifier reads better than a sentence.
   final String name;
+
   final DateTime _startedAt;
   bool _finished = false;
 
   /// The scope to run the span's body in, so nested logs inherit trace/span.
   LogScope get scope => _scope;
 
+  /// The trace this span belongs to.
   String? get traceId => _scope.traceId;
+
+  /// This span's own id, which appears as `sp` on every event logged inside
+  /// [scope].
   String? get spanId => _scope.spanId;
 
+  /// Milliseconds since the span started, read live. Recorded as `dur` when
+  /// the span completes, and safe to read before that — for a progress log
+  /// part-way through a long operation.
   int get elapsedMs => _logger.now().difference(_startedAt).inMilliseconds;
 
   /// Marks the span as successfully completed.

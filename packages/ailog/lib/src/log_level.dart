@@ -4,11 +4,33 @@
 /// ecosystems (10/20/30/...), which leaves room for custom levels to be
 /// mapped in between when bridging from another logger.
 enum LogLevel {
+  /// Fine-grained detail: every step, every value.
+  ///
+  /// The default level for `checkpoint()` and `interaction()`. A production
+  /// `minimumLevel` normally excludes these from the file — but they are
+  /// still recorded as breadcrumbs, so they reappear inside the causal chain
+  /// of whatever fails next. Cheap to leave in the code for that reason.
   trace(10, 'trace'),
+
+  /// Developer-facing detail worth keeping while working on something:
+  /// cache hits, retry decisions, chosen code paths.
   debug(20, 'debug'),
+
+  /// Something the program did that a reader would want to know about:
+  /// "checkout started", "migration applied". The usual production floor.
   info(30, 'info'),
+
+  /// Recovered from, but suspicious. A retry that succeeded, a fallback that
+  /// was taken, a deprecated path still being hit.
   warn(40, 'warn'),
+
+  /// A failure. Emitted by `logger.error()` and by a span that threw. Error
+  /// and above carry a causal chain, and `JsonlFileSink` flushes immediately
+  /// at this level so the line survives a process that dies next.
   error(50, 'error'),
+
+  /// A failure the program did not survive. `runAppGuarded` and
+  /// `runZonedGuarded` integrations record uncaught errors here.
   fatal(60, 'fatal');
 
   const LogLevel(this.severity, this.wireName);
