@@ -328,6 +328,18 @@ the one explaining why the process died.
 
 ## Debug / profile / release builds
 
+> **`ailog` does not quiet itself in release.** `Logger.create(sink: ...)`
+> defaults to `minimumLevel: LogLevel.trace` and `enabled: true` in *every*
+> build mode. Verified: the same program compiled with `dart compile exe`
+> reports `currentBuildMode: release` and still records all four of
+> `trace`/`debug`/`info`/`warn`. Nothing below happens automatically — if
+> you want a release build to log less, or nothing, you have to say so.
+>
+> This is deliberate. A logger that silently discards production evidence
+> would defeat the purpose of a package built for post-mortem analysis, and
+> a surprising default is worse than an explicit one. But it does mean an
+> unconfigured release build writes `trace`-level detail to a user's device.
+
 `isDebugBuild`, `isProfileBuild`, `isReleaseBuild` and `currentBuildMode` are
 `const`, read from the compiler-defined `dart.vm.product` / `dart.vm.profile`
 — the same values `package:flutter/foundation.dart`'s `kReleaseMode` is built

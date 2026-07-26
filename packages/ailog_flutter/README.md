@@ -95,6 +95,12 @@ Flutter app.
 
 ### Debug / profile / release
 
+> **Nothing here is automatic.** A `Logger.create(sink: ...)` with no
+> `minimumLevel` logs at `trace` in a release build exactly as it does in
+> debug — so an unconfigured `flutter build` ships an app writing
+> trace-level detail into the user's app storage. Set the level explicitly
+> for anything you release.
+
 `ailog` exposes `isDebugBuild` / `isProfileBuild` / `isReleaseBuild` and
 `byBuildMode(...)` without depending on Flutter — they read the same
 `dart.vm.product` / `dart.vm.profile` constants `kReleaseMode` does:
@@ -105,6 +111,16 @@ final logger = Logger.create(
   minimumLevel: byBuildMode(debug: LogLevel.trace, release: LogLevel.info),
 );
 ```
+
+Two things worth deciding before you ship, both easy to overlook:
+
+- **How big the file may get.** `JsonlFileSink(maxBytes:, maxFiles:)`
+  bounds it — the default is 8 MiB × 5 files, so up to 40 MiB of app
+  storage. Lower it for a phone.
+- **Whether the log is ever retrieved.** A release build that logs to a
+  device nobody collects from is pure cost. Wire up
+  [sharing](#sharing-logs-with-a-send-logs-button), or turn logging off in
+  release and accept the blind spot deliberately.
 
 See [ailog's README](../ailog/README.md#debug--profile--release-builds) for
 switching logging off entirely, what it costs, and why keeping it on in
