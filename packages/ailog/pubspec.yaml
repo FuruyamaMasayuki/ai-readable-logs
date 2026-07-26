@@ -23,3 +23,4 @@ dev_dependencies:
 
 executables:
   ailog_digest: ailog_digest
+  ailog_sync: ailog_sync

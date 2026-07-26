@@ -9,7 +9,7 @@ own**.
 
 > ### 🚧 Under active development — `0.x`, API not stable
 >
-> Implemented and covered by 352 tests, but **breaking changes land in minor
+> Implemented and covered by 381 tests, but **breaking changes land in minor
 > versions until `1.0.0`**. `0.4.0` alone replaced `fnv1a64` with
 > `fnv1a64Hex`, dropped a parameter from `shortHash`, and changed
 > `Logger.create`'s `enabled` default so a release build is silent.
@@ -111,7 +111,8 @@ reading the whole file just to reconstruct what happened before an error.
 
 **Reading logs** — [AI digest](#ai-digest) ·
 [Filtering for an AI](#sending-logs-to-an-ai-without-sending-junk) ·
-[Getting a string](#getting-the-log-as-a-string)
+[Getting a string](#getting-the-log-as-a-string) ·
+[Auto-syncing a debug session](#syncing-a-debug-session-automatically)
 
 **Operational** — [Redaction](#redaction) · [Sinks](#sinks) ·
 [Performance](#performance) · [Limitations](#limitations)
@@ -870,6 +871,74 @@ dropped event with no record that it happened. Reach for the real
 `JsonlFileSink`, or one of `ailog_flutter`'s other ways to get a log off a
 [real device](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/README.md#getting-the-log-off-a-real-device),
 when that matters more than convenience.
+
+## Syncing a debug session automatically
+
+The section above gets a file out of a debug run, but you drive it: pipe,
+grep, run the digest. `ailog_sync` does the whole loop, and does it while
+the app is still running.
+
+```dart
+// In the app, once at startup.
+final recent = MemorySink(capacity: 20000);
+final logger = Logger.create(sink: MultiSink([fileSink, recent]));
+installDebugSync(recent);
+```
+
+```sh
+# On your machine, with the URI `flutter run` printed on startup.
+dart run ailog:ailog_sync --vm-service http://127.0.0.1:PORT/TOKEN=/ \
+  -o app.jsonl --watch
+```
+
+`app.jsonl` now grows as you use the app. Point an AI at it, or add
+`--digest` to print a summary when the session ends.
+
+**How it works, and why it stops at release.** `installDebugSync` registers
+a [VM Service](https://dart.dev/tools/dart-devtools) extension —
+`ext.ailog.sync` — and the CLI connects to the same socket `flutter run`
+already opened and asks for everything past the last `seq` it has. Debug and
+profile builds serve a VM Service; **a release build does not**, and
+`installDebugSync` additionally refuses to register there, so the callback
+and the buffer it closes over fold out of a release binary rather than
+sitting in it unreachable.
+
+Compared with the `tee` recipe above, this is a **pull over a socket** rather
+than a push through the log channel: nothing is dropped when the app is busy,
+attaching part-way through still gets the buffer's whole history, and there's
+no prefix-stripping step because the events never touch a text stream. It
+costs one call in the app, and a `MemorySink` big enough to cover the gap
+between polls.
+
+If the buffer does roll over between polls, the CLI says so on stderr rather
+than quietly writing a file with a hole in it:
+
+```text
+ailog_sync: 214 events rolled out of the app's buffer before this poll.
+            Raise MemorySink(capacity:) or lower --interval.
+```
+
+Stopping `flutter run` ends the sync cleanly — the file is flushed every
+round, so Ctrl-C at any point leaves a complete one.
+
+### The same CLI, without the app-side call
+
+If you'd rather not add `installDebugSync`, `ailog_sync` also reads stdin,
+which replaces the `tee` + `grep` pipeline with one command:
+
+```dart
+Logger.create(sink: MultiSink([fileSink, JsonlPrintSink(write: debugPrint)]))
+```
+
+```sh
+flutter run | dart run ailog:ailog_sync -o app.jsonl
+```
+
+It keeps the JSONL lines, passes everything else through to your terminal —
+so this stays a drop-in replacement for running `flutter run` on its own —
+and rejects JSON that isn't `ailog`'s, so an app that logs API responses
+doesn't poison the file. It still rides the log channel, though, with the
+drop risk that implies. Prefer `--vm-service` when you can.
 
 ## Examples
 

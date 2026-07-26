@@ -15,6 +15,12 @@ versions and read both changelogs before upgrading.
   you hand them, and a disabled one accepts every call and produces nothing.
   If you ship a way to retrieve the file, opt back in; the README's
   "Debug / profile / release" section covers both directions.
+- Automatic debug-session sync documented, built on `ailog`'s new
+  `installDebugSync` + `ailog_sync`. It is now the first option under
+  "Getting the log off a real device", because it is the only one with no
+  manual step: `flutter run` already opens the VM Service, so a command on
+  your machine can pull the log continuously while you use the app. Release
+  builds are unaffected — they serve no VM Service at all.
 - **`AilogLifecycleObserver`** — foreground/background/termination, with both
   ends of each transition (`paused → resumed`). A handful of events over a
   session, and repeatedly decisive: "crashes when you come back to the app"

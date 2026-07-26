@@ -42,6 +42,42 @@ be considered stable until `1.0.0`.
 
 ### Added
 
+- **`installDebugSync` + `ailog_sync`: the log syncs itself while you debug.**
+  Every other way to get a file off a device is something you do — `adb
+  pull`, Xcode's container download, a share button, a `tee` pipeline with a
+  `grep` after it. This is a call at startup and a command on your machine,
+  after which a local `.jsonl` grows as you use the app:
+
+  ```dart
+  final recent = MemorySink(capacity: 20000);
+  installDebugSync(recent);
+  ```
+  ```sh
+  dart run ailog:ailog_sync --vm-service <uri from flutter run> \
+    -o app.jsonl --watch
+  ```
+
+  It registers a VM Service extension and the CLI pulls from the socket
+  `flutter run` already opened, asking each time for everything past the
+  last `seq` it holds — so it is a pull, not a push: nothing is dropped when
+  the app is busy, attaching late still gets the buffer's whole history, and
+  no prefix-stripping is needed because the events never touch a text
+  stream. Debug and profile only; a release build serves no VM Service, and
+  `installDebugSync` refuses to register there so the callback and the
+  buffer it closes over fold out of the binary.
+
+  If the buffer rolls over between polls the CLI says how many events were
+  lost, rather than writing a file with a silent hole in it.
+
+  `ailog_sync` also reads stdin (`flutter run | dart run ailog:ailog_sync`),
+  which replaces the documented `tee`+`grep` recipe with one command, keeps
+  non-JSONL output flowing to your terminal, and rejects JSON that is not
+  ours so an app logging API responses cannot poison the file.
+
+  The VM Service client is ~130 lines on `dart:io`'s `WebSocket` rather than
+  `package:vm_service`, so the package stays zero-dependency. Tested against
+  a real app process over a real socket — a fake client would exercise none
+  of the parts that actually break.
 - **The digest now reports its own incompleteness.** Size-based rotation
   deletes older files by design, so a digest built from the survivors is a
   partial view — measured: 100,000 events written, 63,686 reported, nothing

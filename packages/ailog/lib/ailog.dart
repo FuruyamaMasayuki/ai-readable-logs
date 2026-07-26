@@ -17,6 +17,8 @@ export 'src/build_mode.dart'
 export 'src/call_site.dart' show CallSite, captureCallSite;
 export 'src/causal_buffer.dart' show CausalBuffer;
 export 'src/console_formatter.dart' show ConsoleFormatter;
+export 'src/debug_sync.dart'
+    show DebugSync, defaultDebugSyncExtension, installDebugSync;
 export 'src/context.dart'
     show LogScope, currentScope, runWithScope, runWithScopeGuarded;
 export 'src/digest.dart'

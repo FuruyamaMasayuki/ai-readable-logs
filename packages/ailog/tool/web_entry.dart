@@ -42,6 +42,12 @@ void main() {
     }
   });
 
+  // dart:developer has no service extensions on web. installDebugSync must
+  // report that rather than throwing — a logger helper taking down the host
+  // program is the one failure mode this package cannot have.
+  print('debugSync registered on web: '
+      '${installDebugSync(buffer).registered}');
+
   capturePrints(logger, () => print('captured'));
 
   // The read-side APIs, which are the whole point of running this on web.

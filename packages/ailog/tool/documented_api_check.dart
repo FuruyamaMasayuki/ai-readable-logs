@@ -25,6 +25,7 @@ void main() {
     LogFilter,
     LogLevel,
     LogScope,
+    DebugSync,
     Logger,
     MemorySink,
     MultiSink,
@@ -85,6 +86,13 @@ void main() {
     defaultSensitiveKeyPattern,
     builtInRedactionRules,
   ];
+
+  // The debug-sync surface the READMEs document.
+  final syncBuffer = MemorySink(capacity: 20000);
+  final DebugSync sync =
+      installDebugSync(syncBuffer, extension: defaultDebugSyncExtension);
+  final bool syncRegistered = sync.registered;
+  final String syncExtension = sync.extension;
 
   // Logger surface used in docs
   final logger = Logger.create(sink: MemorySink());

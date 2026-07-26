@@ -31,6 +31,10 @@ jobs:
       # other check noticing.
       - run: dart compile js tool/web_entry.dart -o /tmp/ailog_web.js
       - run: dart doc --validate-links
+      # Both CLIs must at least start and print usage. `dart test` never
+      # executes bin/, so a broken entry point would otherwise ship.
+      - run: dart run ailog:ailog_digest --help
+      - run: dart run ailog:ailog_sync --help
       - run: dart pub publish --dry-run
 
   ailog_flutter:

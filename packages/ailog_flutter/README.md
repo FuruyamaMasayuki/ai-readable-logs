@@ -8,7 +8,7 @@ too.
 
 > ### 🚧 Under active development — `0.x`, API not stable
 >
-> Implemented and covered by 29 widget/unit tests on top of `ailog`'s 352,
+> Implemented and covered by 29 widget/unit tests on top of `ailog`'s 381,
 > but **breaking changes land in minor versions until `1.0.0`** — read the
 > [CHANGELOG](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog_flutter/CHANGELOG.md) before upgrading, and pin an exact version.
 >
@@ -365,6 +365,29 @@ machine** and needs a path it can read. On a real device, `app.jsonl` lives
 inside the app's private storage — there is no shell on your laptop that can
 just open that path. Four ways to actually get at it, in order of how much
 tooling they need:
+
+0. **Automatically, while you're debugging.** One call in the app and one
+   command on your machine, and a `.jsonl` on your laptop grows as you use
+   the app — no pull step, no piping, no prefix-stripping:
+   ```dart
+   final recent = MemorySink(capacity: 20000);
+   final logger = Logger.create(sink: MultiSink([fileSink, recent]));
+   installDebugSync(recent);        // debug/profile only; a no-op in release
+   ```
+   ```sh
+   # The URI is the one `flutter run` prints on startup.
+   dart run ailog:ailog_sync --vm-service http://127.0.0.1:PORT/TOKEN=/ \
+     -o app.jsonl --watch
+   dart run ailog:ailog_digest app.jsonl
+   ```
+   It rides the VM Service — the same socket `flutter run` and DevTools use
+   — so it is a *pull*: nothing is dropped when the app is busy, and
+   attaching part-way through still gets the buffer's whole history. A
+   release build serves no VM Service, and `installDebugSync` refuses to
+   register there, so this cannot reach a shipped app.
+
+   See ["Syncing a debug session automatically"](https://github.com/FuruyamaMasayuki/ai-readable-logs/blob/main/packages/ailog/README.md#syncing-a-debug-session-automatically)
+   for the buffer sizing that matters and what happens when it overflows.
 
 1. **No tooling at all: read it from inside the app.** Keep a `MemorySink`
    alongside the file sink, and put its output in a debug screen or behind

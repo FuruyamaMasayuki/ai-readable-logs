@@ -1,6 +1,11 @@
 /// Web implementations of the platform hooks. No filesystem, no terminal.
 library;
 
+/// Always `false`: there is no VM Service in a browser, so an extension
+/// registered here can never be invoked — even though `registerExtension`
+/// itself returns without complaint under dart2js.
+const bool platformSupportsServiceExtensions = false;
+
 /// Always `false` — a browser console renders ANSI escapes as literal text.
 bool platformSupportsAnsi() => false;
 

@@ -1,5 +1,14 @@
 import 'dart:io';
 
+/// Whether a VM Service can ever be listening for a registered extension.
+///
+/// True on the VM. `dart:developer`'s `registerExtension` succeeds under
+/// dart2js as well, but nothing on web can ever call the handler — measured,
+/// not assumed: a dart2js build under node reports the registration as
+/// having succeeded. Reporting that as a capability would be a lie a caller
+/// acts on, so the platform split answers it instead.
+const bool platformSupportsServiceExtensions = true;
+
 /// Whether the terminal understands ANSI colour codes.
 bool platformSupportsAnsi() {
   try {

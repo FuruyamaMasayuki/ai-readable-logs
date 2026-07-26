@@ -4,7 +4,7 @@
 
 > ### 🚧 Under active development — pre-1.0, not yet on pub.dev
 >
-> Everything documented here is implemented and tested (352 tests for
+> Everything documented here is implemented and tested (381 tests for
 > `ailog`, 29 for `ailog_flutter`, run on every push), but the packages are
 > **`0.x`** and the API is **not stable yet**. Expect breaking changes in
 > minor versions until `1.0.0`; the [CHANGELOG](packages/ailog/CHANGELOG.md)
