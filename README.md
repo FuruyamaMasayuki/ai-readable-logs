@@ -116,17 +116,86 @@ third-party package's own prints) still ends up in the file:
 
 ```dart
 capturePrints(logger, () {
-  print('a legacy debugging line');   // → console AND app.jsonl, with the trace attached
-  runApplication();
+  print('a legacy debugging line');   // → console AND app.jsonl
+  runApplication();                   // its prints are captured too, however deep
 });
 ```
 
-Then hand the result to an AI:
+Captured lines inherit whatever trace is active where the `print()` happens
+— so a print inside a `runWithScope` carries that trace, and one outside any
+scope (like the first line above) has no trace, exactly like a `logger.info`
+in the same position.
+
+## Getting an answer out of it
+
+`.ailog/app.jsonl` is already usable as-is: paste it into a chat, attach it
+to a bug report, or point an agent at the file. Every line stands alone, and
+the first line of the file explains what each key means, so nothing external
+is needed to interpret it.
+
+For anything longer than a few hundred lines, summarize it first. This runs
+locally — it reads the file and prints Markdown, nothing is uploaded:
 
 ```sh
-dart run ailog:ailog_digest .ailog/app.jsonl          # ranked Markdown summary
-dart run ailog:ailog_digest .ailog/app.jsonl --format json -o digest.json
+dart run ailog:ailog_digest .ailog/app.jsonl
 ```
+
+Copy that output into your AI chat. From 27 events it produces:
+
+```text
+# Log digest
+
+- Events: 27
+- Levels: info=21, error=6
+
+## Top errors (by distinct failures)
+
+### 1. `_Exception` (×3, fp:fedc5e26)
+
+- Message: Exception: card declined
+- Distinct failures: 3
+- Log events: 6 (the same failure logged at multiple layers)
+- Context (first of 3): requestId=req-4
+- Context (most recent): requestId=req-12
+- Top frames:
+  - `main.dart:4 chargeCard`
+  - `main.dart:14 main.<anonymous closure>.<anonymous closure>`
+- Events leading up to it:
+  - `-10ms` [info] checkout started requestId=req-4 userEmail=[redacted:email#42671e62]
+  - `-3ms` [error] charge_card failed requestId=req-4
+
+## Event mix (all 27 events)
+
+- `app` [info] `checkout started` ×12
+- `app` [info] `charge_card completed` ×9
+- `app` [error] `charge_card failed` ×3
+- `app` [error] `exception: card declined` ×3
+```
+
+Which is enough for a model to answer *what broke, how often, and what led
+to it* without reading the file at all:
+
+- **What** — `_Exception: card declined`, thrown at `main.dart:4 chargeCard`.
+- **How often** — 3 distinct failures, not 6. The same failure was logged at
+  two layers (the span, then the caller's `catch`); counting log lines would
+  have reported the bug as twice as frequent as it is.
+- **Out of how many** — 12 checkouts started, 9 charges completed. The
+  missing 3 are the failures. A count that *should* balance and doesn't is
+  often the whole diagnosis.
+- **What led to it** — the two events immediately preceding, with their
+  context, embedded in the error itself.
+- **Whether it's one bug or several** — `fp:fedc5e26` is a fingerprint over
+  the normalized stack; identical fingerprints are the same bug even when
+  the messages differ.
+
+Note `userEmail=[redacted:email#42671e62]` — the address never reached the
+file, but the same user still produces the same token, so "these lines are
+one person" survives redaction.
+
+Use `--format json -o digest.json` instead when a program, not a person, is
+consuming it. If the file is large enough that even the digest feels
+lossy, [`LogFilter`](packages/ailog/README.md#sending-logs-to-an-ai-without-sending-junk)
+trims the raw events while keeping the whole-log counts intact.
 
 ## Logging from native iOS/Android code
 

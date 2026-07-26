@@ -4,8 +4,8 @@
 /// packages, and quick debugging all speak `print`, and every one of those
 /// lines is invisible to the JSONL file — which means invisible to whatever
 /// AI later reads it. Capturing them costs the caller one wrapper at the top
-/// of `main`, and each captured line still carries the ambient trace and
-/// session ids like any other event.
+/// of `main`, and each captured line behaves like any other event: same
+/// session id, and whatever trace is active where the `print()` runs.
 library;
 
 import 'dart:async';
@@ -22,6 +22,20 @@ import 'logger.dart';
 /// the console. Keep it `true` (default) when [logger] has no console sink.
 /// Set it to `false` when a `ConsoleSink` is attached, or every `print` will
 /// appear twice — once raw, once formatted.
+///
+/// This starts no trace of its own. A captured line inherits whatever scope
+/// is active where the `print()` actually runs — the same rule every other
+/// log call follows — so a print outside any `runWithScope` has no trace id.
+///
+/// Capture follows the [Zone], which has two consequences worth knowing.
+/// Work *scheduled* inside [body] stays captured even though it runs later,
+/// because a `Timer` or `Future` binds to the zone that created it. But an
+/// isolate started with `Isolate.spawn` (or Flutter's `compute`) begins a
+/// fresh zone tree, so prints made there are **not** captured; call this
+/// again inside that isolate if you need them.
+///
+/// One `print()` is one event. `print('a\nb')` yields a single line whose
+/// message contains the newline, not two events.
 ///
 /// Prints emitted by the logging pipeline itself (e.g. `ConsoleSink` writing
 /// a formatted line) are passed straight through, never re-captured, so a

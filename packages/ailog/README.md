@@ -438,7 +438,7 @@ allow optional positional and named parameters in one signature, so
 
 Nobody instruments a codebase all at once. `capturePrints` routes ordinary
 `print()` — yours, or a third-party package's — into the structured log,
-tagged `print`, carrying the ambient trace like any other event:
+tagged `print`:
 
 ```dart
 void main() {
@@ -453,6 +453,21 @@ void main() {
 Set `forwardToConsole: false` if a `ConsoleSink` is attached, or each print
 shows up twice (once raw, once formatted). In Flutter, `runAppGuarded(...,
 capturePrint: true)` does the same thing with one flag.
+
+`capturePrints` does **not** start a trace of its own. A captured line
+inherits whatever scope is active at the moment the `print()` runs, exactly
+like a `logger.info()` in the same place — so the line above, outside any
+`runWithScope`, has no trace, while prints from inside `runApplication()`
+carry whatever trace that code established:
+
+```dart
+capturePrints(logger, () {
+  print('before any trace');                       // tr: absent
+  runWithScope(logger.startTrace(), () {
+    print('inside a trace');                       // tr: 8405fee7…
+  });
+});
+```
 
 ### How it actually works
 

@@ -71,9 +71,11 @@ runAppGuarded(
 ```
 
 Un-migrated code and third-party packages speak `print`, and none of it
-reaches the log file otherwise. Captured lines are tagged `print` and carry
-the ambient trace like any other event. Set `forwardPrintsToConsole: false`
-if you attach a `ConsoleSink`, or each line appears twice.
+reaches the log file otherwise. Captured lines are tagged `print` and follow
+the same scope rule as every other log call — they carry whatever trace is
+active where the `print()` runs, and none if there isn't one. Set
+`forwardPrintsToConsole: false` if you attach a `ConsoleSink`, or each line
+appears twice.
 
 This works by installing a `Zone`, so it applies to a `print()` anywhere
 inside `runAppGuarded`'s callback — including one made deep inside a
