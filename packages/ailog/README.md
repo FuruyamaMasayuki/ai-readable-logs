@@ -438,7 +438,11 @@ allow optional positional and named parameters in one signature, so
 
 Nobody instruments a codebase all at once. `capturePrints` routes ordinary
 `print()` — yours, or a third-party package's — into the structured log,
-tagged `print`:
+tagged `print`.
+
+It is **additive, not an alternative**: it wraps the logger you already set
+up and the code you already have, so `logger.info(...)` and `print(...)`
+both end up in the same file. Nothing above needs to change to adopt it.
 
 ```dart
 void main() {

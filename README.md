@@ -111,20 +111,44 @@ Future<void> main() async {
 }
 ```
 
-Plain `print()` calls are captured too, so code you haven't migrated (or a
-third-party package's own prints) still ends up in the file:
+### Bringing existing `print()` calls along
+
+Everything above assumes you call `logger.info(...)`. Most codebases have a
+lot of code that doesn't yet — and third-party packages that never will.
+Those `print()` lines go to the console and nowhere else, so they are
+missing from the file an AI reads.
+
+`capturePrints` is not a different way to log. It **wraps whatever you were
+already doing**, and additionally routes `print()` through the same logger.
+Same setup as above, one line added:
 
 ```dart
-capturePrints(logger, () {
-  print('a legacy debugging line');   // → console AND app.jsonl
-  runApplication();                   // its prints are captured too, however deep
-});
+Future<void> main() async {
+  final logger = Logger.create(sink: /* …exactly as above… */);
+
+  // Everything that runs inside here — your code, your dependencies, at any
+  // depth — has its print() calls logged as well as printed.
+  await capturePrints(logger, () async {
+    print('a legacy debugging line');   // → console AND app.jsonl
+
+    await runWithScope(logger.startTrace(context: {'requestId': 'req-1'}), () async {
+      logger.info('checkout started');  // a normal log call, unchanged
+      print('not migrated yet');        // captured, and carries req-1's trace
+    });
+  });
+
+  await logger.close();
+}
 ```
 
-Captured lines inherit whatever trace is active where the `print()` happens
-— so a print inside a `runWithScope` carries that trace, and one outside any
-scope (like the first line above) has no trace, exactly like a `logger.info`
-in the same position.
+So the two styles coexist: `logger.info` gives you levels, structured
+context and spans; `print` gives you the lines you haven't gotten to yet.
+Both land in the same file, and captured prints are tagged `print` so you
+can see how much is left to migrate.
+
+Captured lines follow the same scope rule as any other event — they carry
+whatever trace is active where the `print()` runs. Above, the first print
+has none; the one inside `runWithScope` carries `req-1`.
 
 ## Getting an answer out of it
 
