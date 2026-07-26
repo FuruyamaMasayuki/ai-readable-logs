@@ -16,8 +16,12 @@ import 'package:ailog/ailog.dart';
 /// want.** The package exists for post-mortem analysis, and the failures
 /// worth analyzing are the ones users hit in production; a release build
 /// that logs nothing cannot describe them.
+///
+/// `enabled: true` is required: the default is `!isReleaseBuild`, so without
+/// it a release build stays silent and `minimumLevel` is never consulted.
 Logger quieterInRelease() => Logger.create(
       sink: MemorySink(),
+      enabled: true,
       minimumLevel: byBuildMode(
         debug: LogLevel.trace, // everything while developing
         profile: LogLevel.info, // don't distort what you're measuring
@@ -43,12 +47,15 @@ Logger offInRelease() => isReleaseBuild
     ? Logger.disabled()
     : Logger.create(sink: JsonlFileSink(path: '.ailog/dev.jsonl'));
 
-/// Strategy 3 — same shape, decided at runtime instead.
+/// Strategy 3 — decided at runtime instead of by build mode.
 ///
-/// `enabled` is an ordinary field, so this cannot eliminate anything: the
-/// sink is still constructed and the check is a real branch. Use it when the
-/// decision isn't a build-mode constant — a remote config flag, a
-/// "diagnostics" toggle in settings, an opt-in from the user.
+/// Passing `enabled` explicitly overrides the build-mode default in both
+/// directions: this logs in release when the user opted in, and stays quiet
+/// in debug when they didn't. Use it for a remote config flag, a
+/// "diagnostics" toggle in settings, a "help us debug this" switch.
+///
+/// It cannot eliminate anything, unlike strategy 2: the sink is still
+/// constructed and the check is a real branch.
 Logger togglable({required bool userOptedIn}) => Logger.create(
       sink: JsonlFileSink(path: '.ailog/app.jsonl'),
       enabled: userOptedIn,
@@ -62,9 +69,12 @@ Future<void> main() async {
   print('');
 
   // --- Strategy 1 -------------------------------------------------------
+  // `enabled: true` opts back in: without it the default is `!isReleaseBuild`
+  // and the compiled binary would keep 0 of 4, never reaching minimumLevel.
   final sink = MemorySink();
   final logger = Logger.create(
     sink: sink,
+    enabled: true,
     minimumLevel: byBuildMode(debug: LogLevel.trace, release: LogLevel.info),
   );
 

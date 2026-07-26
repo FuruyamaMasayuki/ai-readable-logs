@@ -109,9 +109,32 @@ void main() {
       expect(sink.events, isEmpty);
     });
 
-    test('enabled: true is the default and still logs', () {
+    test('the default follows the build mode', () {
+      // `enabled` defaults to !isReleaseBuild. A test runs in debug, so the
+      // default is on here — the release half of this claim cannot be
+      // asserted from inside a test process and is verified by compiling
+      // with `dart compile exe` instead (see the CHANGELOG entry).
       final sink = MemorySink();
       Logger.create(sink: sink).info('hello');
+
+      expect(sink.events, hasLength(isDebugBuild ? 1 : 0));
+    });
+
+    test('enabled: true opts a release build back in', () {
+      // The escape hatch is a plain argument, so it works identically in
+      // every mode — nothing about it is conditional on the build.
+      final sink = MemorySink();
+      Logger.create(sink: sink, enabled: true).info('hello');
+
+      expect(sink.events, hasLength(1));
+    });
+
+    test('forTesting() logs regardless of build mode', () {
+      // It passes enabled: true explicitly. A test compiled AOT would
+      // otherwise get a silently disabled logger and fail somewhere
+      // unrelated to what it was testing.
+      final sink = MemorySink();
+      Logger.forTesting(sink: sink).info('hello');
 
       expect(sink.events, hasLength(1));
     });

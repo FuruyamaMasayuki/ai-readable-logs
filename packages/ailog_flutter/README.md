@@ -37,8 +37,10 @@ void main() {
   final logger = Logger.create(
     sink: MultiSink([
       JsonlFileSink(path: logFile),
-      LevelFilterSink(ConsoleSink(), LogLevel.info),
+      LevelFilterSink(ConsoleSink.usingPrint(), LogLevel.info),
     ]),
+    // Debug and profile only. A `flutter build` release is silent unless you
+    // add `enabled: true` — see "Debug / profile / release" below.
   );
 
   // Hooks FlutterError / PlatformDispatcher / ErrorWidget.
@@ -95,11 +97,16 @@ Flutter app.
 
 ### Debug / profile / release
 
-> **Nothing here is automatic.** A `Logger.create(sink: ...)` with no
-> `minimumLevel` logs at `trace` in a release build exactly as it does in
-> debug — so an unconfigured `flutter build` ships an app writing
-> trace-level detail into the user's app storage. Set the level explicitly
-> for anything you release.
+> **A `flutter build` release ships with logging off.** `enabled` defaults
+> to `!isReleaseBuild`, so nothing is written to a user's device unless you
+> ask for it. Debug and profile builds are unaffected.
+>
+> If you want production logs — and you do, if you have any way to get the
+> file back — opt in explicitly:
+>
+> ```dart
+> Logger.create(sink: sink, enabled: true, minimumLevel: LogLevel.info);
+> ```
 
 `ailog` exposes `isDebugBuild` / `isProfileBuild` / `isReleaseBuild` and
 `byBuildMode(...)` without depending on Flutter — they read the same
@@ -108,6 +115,7 @@ Flutter app.
 ```dart
 final logger = Logger.create(
   sink: sink,
+  enabled: true, // ← without this, release never consults minimumLevel
   minimumLevel: byBuildMode(debug: LogLevel.trace, release: LogLevel.info),
 );
 ```
@@ -119,13 +127,14 @@ Two things worth deciding before you ship, both easy to overlook:
   storage. Lower it for a phone.
 - **Whether the log is ever retrieved.** A release build that logs to a
   device nobody collects from is pure cost. Wire up
-  [sharing](#sharing-logs-with-a-send-logs-button), or turn logging off in
-  release and accept the blind spot deliberately.
+  [sharing](#sharing-logs-with-a-send-logs-button) and opt in with
+  `enabled: true`, or leave the release default alone and accept the blind
+  spot deliberately.
 
 See [ailog's README](../ailog/README.md#debug--profile--release-builds) for
-switching logging off entirely, what it costs, and why keeping it on in
-release is usually the better call for a package built around post-mortem
-analysis.
+the `const` form that compiles the sink out entirely, what a call on a
+disabled logger actually costs, and why opting back in is usually the better
+call for a package built around post-mortem analysis.
 
 ## Navigation breadcrumbs
 

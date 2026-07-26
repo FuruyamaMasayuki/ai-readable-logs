@@ -25,6 +25,10 @@ void main() {
       RateLimitSink(buffer),
       LevelFilterSink(ConsoleSink.usingPrint(), LogLevel.warn),
     ]),
+    // Not the default in release, and this file's job is to exercise the
+    // code paths — a disabled logger would compile just as cleanly while
+    // proving much less.
+    enabled: true,
     minimumLevel: byBuildMode(debug: LogLevel.trace, release: LogLevel.info),
   );
 

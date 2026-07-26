@@ -15,11 +15,16 @@
 ///     : Logger.create(sink: JsonlFileSink(path: ...));
 /// ```
 ///
-/// Passing a flag at runtime (`Logger.create(enabled: !isReleaseBuild)`)
-/// cannot do that: the sink is still constructed and the check is a real
-/// branch. It is cheap — one bool, ahead of all formatting — but it is not
-/// elimination. Use whichever the situation warrants; the difference is
-/// stated plainly so the choice is informed.
+/// `Logger.create`'s `enabled` already defaults to `!isReleaseBuild`, so a
+/// release build is quiet without writing any of this. What the pattern above
+/// buys on top of that is *elimination*: with `enabled`, the sink is still
+/// constructed and the check is a real branch — cheap, one bool ahead of all
+/// formatting, but the code is still in the binary.
+///
+/// Passing `enabled` explicitly overrides the default in both directions —
+/// `enabled: true` logs in release, `enabled: userOptedIn` defers the whole
+/// question to runtime. Use whichever the situation warrants; the difference
+/// is stated plainly so the choice is informed.
 library;
 
 /// How the current binary was compiled.

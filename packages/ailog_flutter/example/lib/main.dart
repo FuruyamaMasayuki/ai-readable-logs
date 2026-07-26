@@ -30,6 +30,12 @@ void main() {
       JsonlFileSink(path: logFile),
       LevelFilterSink(ConsoleSink(), LogLevel.trace),
     ]),
+    // `enabled` defaults to `!isReleaseBuild`, so a `flutter build` of this
+    // demo would show nothing at all. A demo whose behaviour depends on how
+    // it was compiled is a bad demo, so opt in explicitly. A real app should
+    // decide this deliberately — see "Debug, profile and release builds" in
+    // the README.
+    enabled: true,
     // Checkpoints default to `trace`, so keep the threshold there to see them
     // in this demo. Production would typically use `debug` or higher, which
     // filters them out at no cost.

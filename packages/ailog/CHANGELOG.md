@@ -2,6 +2,26 @@
 
 ### Changed
 
+- **A release build now logs nothing unless you ask it to.** `enabled` on
+  `Logger.create` defaults to `!isReleaseBuild` instead of `true`, so
+  `flutter build` / `dart compile exe` ship silent by default and only a
+  debug or profile build logs out of the box. Opt back in with
+  `Logger.create(sink: ..., enabled: true)` — a plain argument, so it works
+  the same in every mode — or with a runtime flag (`enabled: userOptedIn`)
+  for a diagnostics toggle in settings. `Logger.forTesting()` passes
+  `enabled: true` itself, so a test compiled AOT still logs.
+
+  The tradeoff is real and worth stating: the failures most worth analyzing
+  are the ones users hit in production, and a silent release cannot describe
+  them. The default is chosen for the case where nobody has decided yet —
+  writing to a user's device and printing to their console are both things
+  to opt into, not out of. When you *can* retrieve the log,
+  `enabled: true` with `minimumLevel: byBuildMode(debug: LogLevel.trace,
+  release: LogLevel.info)` is the better configuration.
+
+  Verified against a real `dart compile exe` binary: default `events=0`,
+  `enabled: true` `events=2`, `forTesting()` `events=2`; the same four cases
+  under JIT give 2 / 2 / 2 with only `enabled: false` at 0.
 - `Span` has no `end()` — the README documented one that never existed. The
   real methods are `succeed()` and `fail()`. `tool/documented_api_check.dart`
   now references every documented API and is analyzed in CI, so an example

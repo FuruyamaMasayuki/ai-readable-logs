@@ -1,5 +1,14 @@
 ## 0.3.0
 
+- **A `flutter build` release now ships with logging off.** This follows
+  `ailog` 0.4.0, where `Logger.create`'s `enabled` defaults to
+  `!isReleaseBuild`: debug and profile are unaffected, and a release build
+  writes nothing to a user's device unless you pass `enabled: true` (or a
+  runtime flag, for a diagnostics toggle in settings). `AilogFlutter.install`
+  and `runAppGuarded` are unchanged — they route errors into whatever logger
+  you hand them, and a disabled one accepts every call and produces nothing.
+  If you ship a way to retrieve the file, opt back in; the README's
+  "Debug / profile / release" section covers both directions.
 - **`AilogLifecycleObserver`** — foreground/background/termination, with both
   ends of each transition (`paused → resumed`). A handful of events over a
   session, and repeatedly decisive: "crashes when you come back to the app"

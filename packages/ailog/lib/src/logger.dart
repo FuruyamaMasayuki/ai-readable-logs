@@ -131,17 +131,48 @@ class Logger {
   /// varies line to line.
   ///
   /// [enabled] switches the whole logger off: every call returns before any
-  /// formatting, sanitizing or sink work. Combine it with [isReleaseBuild]
-  /// to keep logging out of production builds — but see [Logger.disabled],
-  /// which additionally lets the AOT compiler drop the sink entirely, and
-  /// read the note there before switching release logging off at all.
+  /// formatting, sanitizing or sink work.
+  ///
+  /// **It defaults to `!isReleaseBuild`, so a release build logs nothing
+  /// unless you ask it to.** Writing a user's device full of diagnostics is
+  /// not something a package should start doing because you added a
+  /// dependency; it should be a decision you made. Debug and profile builds
+  /// are unaffected and log normally.
+  ///
+  /// Opting a release build back in is one argument:
+  ///
+  /// ```dart
+  /// Logger.create(sink: sink, enabled: true);                  // always
+  /// Logger.create(sink: sink, enabled: userOptedIntoDiagnostics);
+  /// ```
+  ///
+  /// Know what you are turning off if you leave the default. Production is
+  /// where the failures you cannot reproduce live, and this package exists
+  /// to make those analyzable — a release build that logs nothing cannot
+  /// describe them. Pair `enabled: true` with a raised [minimumLevel] when
+  /// the worry is volume rather than the existence of the file:
+  ///
+  /// ```dart
+  /// Logger.create(
+  ///   sink: sink,
+  ///   enabled: true,
+  ///   minimumLevel: byBuildMode(debug: LogLevel.trace, release: LogLevel.info),
+  /// );
+  /// ```
+  ///
+  /// Leaving it off still costs a branch per call (measured at 5 ns in a
+  /// release AOT build). [Logger.disabled] behind a `const` condition lets
+  /// the compiler remove the sink's construction outright.
   ///
   /// [idGenerator] and [clock] are injectable so tests can pin ids and
   /// timestamps and assert against exact output.
   factory Logger.create({
     required LogSink sink,
     String name = 'app',
-    bool enabled = true,
+    // A release build stays silent unless the caller opts in. `isReleaseBuild`
+    // is a compile-time constant, so this is a valid const default and folds
+    // away rather than being evaluated per construction.
+    bool enabled = !isReleaseBuild,
     LogLevel minimumLevel = LogLevel.trace,
     LogLevel breadcrumbLevel = LogLevel.trace,
     Redactor? redactor,
@@ -222,6 +253,10 @@ class Logger {
   }) =>
       Logger.create(
         sink: sink ?? MemorySink(),
+        // Explicit, not inherited from the build mode. A test compiled AOT
+        // would otherwise get a silently disabled logger and assertions that
+        // fail for a reason nowhere near the test.
+        enabled: true,
         minimumLevel: minimumLevel,
         breadcrumbLevel: breadcrumbLevel,
         redactor: redactor ?? Redactor.disabled(),

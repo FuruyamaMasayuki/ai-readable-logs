@@ -328,17 +328,34 @@ the one explaining why the process died.
 
 ## Debug / profile / release builds
 
-> **`ailog` does not quiet itself in release.** `Logger.create(sink: ...)`
-> defaults to `minimumLevel: LogLevel.trace` and `enabled: true` in *every*
-> build mode. Verified: the same program compiled with `dart compile exe`
-> reports `currentBuildMode: release` and still records all four of
-> `trace`/`debug`/`info`/`warn`. Nothing below happens automatically — if
-> you want a release build to log less, or nothing, you have to say so.
+> **A release build logs nothing unless you opt in.** `enabled` defaults to
+> `!isReleaseBuild`, so `Logger.create(sink: ...)` is fully active in debug
+> and profile, and completely silent in release. Verified by compiling the
+> same program with `dart compile exe`: `default → 0 events`,
+> `enabled: true → 2 events`.
 >
-> This is deliberate. A logger that silently discards production evidence
-> would defeat the purpose of a package built for post-mortem analysis, and
-> a surprising default is worse than an explicit one. But it does mean an
-> unconfigured release build writes `trace`-level detail to a user's device.
+> Filling a user's device with diagnostics should be a decision you made,
+> not something that starts happening because you added a dependency. One
+> argument turns it back on:
+>
+> ```dart
+> Logger.create(sink: sink, enabled: true);                    // always on
+> Logger.create(sink: sink, enabled: userOptedIntoDiagnostics); // their choice
+> ```
+>
+> Be deliberate about leaving it off, though. Production is where the
+> failures you cannot reproduce live, and this package exists to make those
+> analyzable — a release build that logs nothing cannot describe them. If
+> the concern is volume rather than the existence of a file, opt in and
+> raise the level instead:
+>
+> ```dart
+> Logger.create(
+>   sink: sink,
+>   enabled: true,
+>   minimumLevel: byBuildMode(debug: LogLevel.trace, release: LogLevel.info),
+> );
+> ```
 
 `isDebugBuild`, `isProfileBuild`, `isReleaseBuild` and `currentBuildMode` are
 `const`, read from the compiler-defined `dart.vm.product` / `dart.vm.profile`
@@ -346,11 +363,12 @@ the one explaining why the process died.
 on. This package stays dependency-free and behaves identically inside a
 Flutter app.
 
-### Quieter in release (recommended)
+### On in release, but quieter (recommended when you can retrieve the log)
 
 ```dart
 Logger.create(
   sink: sink,
+  enabled: true,              // ← required; the default is off in release
   minimumLevel: byBuildMode(
     debug: LogLevel.trace,    // everything while developing
     profile: LogLevel.info,   // don't distort what you're measuring
@@ -359,6 +377,11 @@ Logger.create(
   causalChainLength: byBuildMode(debug: 20, release: 8),
 );
 ```
+
+Without `enabled: true` this logs nothing at all in release — the level
+would never be consulted. Worth this configuration whenever you have a way
+to get the file back (a share button, a support flow); worth leaving off
+when you don't, since a log nobody collects is pure cost.
 
 `byBuildMode` works for any value, not just levels. `profile` defaults to
 the `release` value, because a profile build is a release-shaped build being
@@ -377,15 +400,19 @@ dead branch. **Verified**, not assumed: compiling this with
 `dart compile exe` and searching the binary shows the unused branch's log
 path string is absent, while a control string in live code is present.
 
-### Off at runtime
+### Decided at runtime instead of by build mode
 
 ```dart
 Logger.create(sink: sink, enabled: userOptedIntoDiagnostics);
 ```
 
-Use this when the decision isn't a build-mode constant — a remote flag, a
-settings toggle, an opt-in. It cannot eliminate anything: the sink is still
-constructed and the check is a real branch.
+Passing `enabled` explicitly overrides the build-mode default in both
+directions — this logs in release when the user has opted in, and stays
+quiet in debug when they haven't. Use it for a remote flag, a settings
+toggle, a "help us debug this" switch.
+
+It cannot eliminate anything: the sink is still constructed and the check
+is a real branch. That is the difference from the `const` form above.
 
 ### What a disabled call actually costs
 
